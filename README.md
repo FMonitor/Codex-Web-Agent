@@ -24,9 +24,12 @@
 
 ```text
 Multi-Copilot/
-├── apps/
+├── app/
 │   ├── server/        # Express + SSE + RuntimeAdapter
 │   └── web/           # React + Vite 移动端优先 WebUI
+├── CodexCLI/          # Codex runtime container
+├── APIAdapter/        # Responses compatibility adapter
+├── deploy/            # 统一三容器编排
 ├── packages/
 │   └── shared/        # 共享类型、常量、输入 schema
 ├── docs/
@@ -34,8 +37,6 @@ Multi-Copilot/
 │   ├── event-model.md
 │   └── examples/
 │       └── basic-session.json
-├── doc/
-│   └── 项目需求设计.md
 └── README.md
 ```
 
@@ -105,8 +106,8 @@ Codex 官方文档当前支持两类主要认证思路：
 
 这个仓库已经把容器配置放在：
 
-- [containers/codex-cli/README.md](./containers/codex-cli/README.md)
-- [containers/codex-cli/docker-compose.yml](./containers/codex-cli/docker-compose.yml)
+- [CodexCLI/README.md](./CodexCLI/README.md)
+- [deploy/docker-compose.yml](./deploy/docker-compose.yml)
 
 容器默认提供的 profile：
 
@@ -114,12 +115,25 @@ Codex 官方文档当前支持两类主要认证思路：
 - `custom-api`
 - `custom-openai-auth`
 
-其中 `custom-api` 现在默认不会直接打你的 llama 后端，而是先进入仓库内置的 Responses 兼容代理：
+其中 `custom-api` 会先进入 `APIAdapter` 的 Responses 兼容代理：
 
 - WebUI 选定 `custom-api` 后，模型候选会通过 server 调用 `/v1/models`
 - 代理会把 Codex 的 `POST /v1/responses` 转成上游 `POST /v1/chat/completions`
 - 如果你的模型服务跑在宿主机上，优先把 `.env` 里的 `CODEX_CUSTOM_API_BASE_URL` 配成 `http://host.docker.internal:<port>/v1`
 - 代理默认暴露在宿主机 `http://127.0.0.1:11434/v1`
+
+## 容器化启动（三容器）
+
+```bash
+cd /home/monitor/Multi-Copilot/deploy
+cp .env.example .env
+docker compose up -d --build
+```
+
+默认暴露：
+
+- App (含 WebUI + API): `http://localhost:8787`
+- APIAdapter: `http://localhost:11434/v1`
 
 ## API 与事件文档
 
