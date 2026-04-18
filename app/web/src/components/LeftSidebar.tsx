@@ -1,5 +1,6 @@
 import type { SessionSummary } from "@copilot-console/shared";
 import type { WorkspaceTreeNode } from "../api/client";
+import { useState } from "react";
 
 type SidebarTab = "sessions" | "files";
 
@@ -14,13 +15,19 @@ interface LeftSidebarProps {
   onSelectSession: (sessionId: string) => void;
   onRefreshSessions: () => void;
   onRefreshTree: () => void;
+  onSelectFile: (path: string) => void;
+  onArchiveSession: (sessionId: string) => void;
+  onExportSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
 }
 
-function TreeNode({ node }: { node: WorkspaceTreeNode }) {
+function TreeNode({ node, onSelectFile }: { node: WorkspaceTreeNode; onSelectFile: (path: string) => void }) {
   if (node.type === "file") {
     return (
       <li className="tree-item tree-file" title={node.path}>
-        {node.name}
+        <button type="button" className="tree-file-button" onClick={() => onSelectFile(node.path)}>
+          {node.name}
+        </button>
       </li>
     );
   }
@@ -32,7 +39,7 @@ function TreeNode({ node }: { node: WorkspaceTreeNode }) {
         {node.children && node.children.length > 0 ? (
           <ul className="tree-list">
             {node.children.map((child) => (
-              <TreeNode key={`${node.path}/${child.path}`} node={child} />
+              <TreeNode key={`${node.path}/${child.path}`} node={child} onSelectFile={onSelectFile} />
             ))}
           </ul>
         ) : null}
@@ -53,7 +60,13 @@ export function LeftSidebar({
   onSelectSession,
   onRefreshSessions,
   onRefreshTree,
+  onSelectFile,
+  onArchiveSession,
+  onExportSession,
+  onDeleteSession,
 }: LeftSidebarProps) {
+  const [actionMenuFor, setActionMenuFor] = useState<string | null>(null);
+
   return (
     <aside className="left-sidebar">
       <div className="side-tabs">
@@ -85,19 +98,39 @@ export function LeftSidebar({
             <div className="session-list">
               {sessions.length === 0 ? <p className="muted">暂无 Session</p> : null}
               {sessions.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  className={`session-item ${activeSessionId === session.id ? "active" : ""}`}
-                  onClick={() => onSelectSession(session.id)}
-                >
+                <div key={session.id} className={`session-item ${activeSessionId === session.id ? "active" : ""}`}>
+                  <div className="row session-item-head">
+                    <button type="button" className="session-main" onClick={() => onSelectSession(session.id)}>
+                      <strong>{session.title}</strong>
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button small-button"
+                      onClick={() => setActionMenuFor((current) => (current === session.id ? null : session.id))}
+                    >
+                      ...
+                    </button>
+                  </div>
                   <div className="row">
-                    <strong>{session.title}</strong>
                     <span className={`pill pill-${session.status}`}>{session.status}</span>
                   </div>
                   <div className="muted">{session.runtimeProfile || "default"} / {session.model || "default"}</div>
                   <div className="muted">{new Date(session.updatedAt).toLocaleString("zh-CN")}</div>
-                </button>
+
+                  {actionMenuFor === session.id ? (
+                    <div className="session-menu">
+                      <button type="button" className="ghost-button small-button" onClick={() => onArchiveSession(session.id)}>
+                        归档
+                      </button>
+                      <button type="button" className="ghost-button small-button" onClick={() => onExportSession(session.id)}>
+                        导出
+                      </button>
+                      <button type="button" className="ghost-button small-button" onClick={() => onDeleteSession(session.id)}>
+                        删除
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ))}
             </div>
           </>
@@ -113,7 +146,7 @@ export function LeftSidebar({
             {workspaceTreeLoading ? <p className="muted">加载中...</p> : null}
             {workspaceTree ? (
               <ul className="tree-list">
-                <TreeNode node={workspaceTree} />
+                <TreeNode node={workspaceTree} onSelectFile={onSelectFile} />
               </ul>
             ) : null}
           </>

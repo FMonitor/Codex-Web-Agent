@@ -6,7 +6,23 @@ import type {
   SessionSnapshot,
 } from "@copilot-console/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiClient, type BootstrapResponse, type WorkspaceTreeNode } from "../api/client";
+import {
+  apiClient,
+  type BootstrapResponse,
+  type WorkspaceFileResponse,
+  type WorkspaceTreeNode,
+} from "../api/client";
+
+const ARCHIVE_STORAGE_KEY = "copilot-console-archived-sessions";
+
+interface OpenedFile {
+  path: string;
+  loading: boolean;
+  supported: boolean;
+  reason: string | null;
+  language: string;
+  content: string;
+}
 
 function applyEvent(snapshot: SessionSnapshot, event: ConsoleEvent): SessionSnapshot {
   if (event.type === "session.snapshot" && event.snapshot) {
@@ -113,7 +129,7 @@ export function useConsoleSession() {
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [createOptions, setCreateOptions] = useState<Partial<CreateSessionInput>>({
-    runtimeProfile: "",
+    runtimeProfile: "custom-api",
     model: "",
     sandboxMode: "workspace-write",
   });
@@ -121,17 +137,19 @@ export function useConsoleSession() {
     "idle",
   );
   const [modelOptions, setModelOptions] = useState<string[]>([]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [allSessions, setAllSessions] = useState<SessionSummary[]>([]);
+  const [archivedSessionIds, setArchivedSessionIds] = useState<string[]>([]);
   const [sidebarTab, setSidebarTab] = useState<"sessions" | "files">("sessions");
   const [workspaceTree, setWorkspaceTree] = useState<WorkspaceTreeNode | null>(null);
   const [workspaceRootLabel, setWorkspaceRootLabel] = useState("");
   const [workspaceTreeLoading, setWorkspaceTreeLoading] = useState(false);
+  const [openedFile, setOpenedFile] = useState<OpenedFile | null>(null);
   const [error, setError] = useState<string>("");
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refreshSessions = async () => {
     const response = await apiClient.listSessions();
-    setSessions(response.sessions);
+    setAllSessions(response.sessions);
   };
 
   const refreshWorkspaceTree = async () => {
@@ -146,13 +164,29 @@ export function useConsoleSession() {
   };
 
   useEffect(() => {
+    try {
+      const value = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+      if (value) {
+        const parsed = JSON.parse(value) as string[];
+        setArchivedSessionIds(parsed);
+      }
+    } catch {
+      // ignore local storage parsing errors
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(archivedSessionIds));
+  }, [archivedSessionIds]);
+
+  useEffect(() => {
     apiClient
       .bootstrap()
       .then(async (data) => {
         setBootstrap(data);
         setCreateOptions((current) => ({
           ...current,
-          runtimeProfile: data.currentSession?.session.runtimeProfile || current.runtimeProfile || "",
+          runtimeProfile: data.currentSession?.session.runtimeProfile || current.runtimeProfile || "custom-api",
           model: data.currentSession?.session.model || current.model || "",
           sandboxMode: data.currentSession?.session.sandboxMode || current.sandboxMode || "workspace-write",
         }));
@@ -183,7 +217,7 @@ export function useConsoleSession() {
     }
 
     const runtime = "codex-cli";
-    const profile = createOptions.runtimeProfile || undefined;
+    const profile = createOptions.runtimeProfile || "custom-api";
     let cancelled = false;
 
     apiClient
@@ -230,7 +264,27 @@ export function useConsoleSession() {
     };
   }, [snapshot?.session.id]);
 
-  const currentPhaseLabel = useMemo(() => snapshot?.session.currentPhase || "idle", [snapshot]);
+  useEffect(() => {
+    if (!snapshot?.fileChanges.length) {
+      return;
+    }
+    void refreshWorkspaceTree();
+  }, [snapshot?.fileChanges[0]?.id]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+    setAllSessions((current) => {
+      const index = current.findIndex((item) => item.id === snapshot.session.id);
+      if (index < 0) {
+        return [snapshot.session, ...current].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      }
+      const next = [...current];
+      next[index] = snapshot.session;
+      return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    });
+  }, [snapshot?.session.updatedAt, snapshot?.session.id]);
 
   const createSession = async () => {
     if (!bootstrap) {
@@ -241,7 +295,7 @@ export function useConsoleSession() {
       title: `Console ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`,
       workspacePath: bootstrap.defaultWorkspacePath,
       runtime: "codex-cli",
-      runtimeProfile: createOptions.runtimeProfile || undefined,
+      runtimeProfile: createOptions.runtimeProfile || "custom-api",
       model: createOptions.model || undefined,
       sandboxMode: createOptions.sandboxMode,
       agentId: "default",
@@ -255,6 +309,72 @@ export function useConsoleSession() {
     setError("");
     const next = await apiClient.getSession(sessionId);
     setSnapshot(next);
+  };
+
+  const archiveSession = (sessionId: string) => {
+    setArchivedSessionIds((current) => (current.includes(sessionId) ? current : [sessionId, ...current]));
+  };
+
+  const exportSession = async (sessionId: string) => {
+    const data = await apiClient.getSession(sessionId);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `session-${sessionId}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const deleteSession = async (sessionId: string) => {
+    await apiClient.deleteSession(sessionId);
+    await refreshSessions();
+    if (snapshot?.session.id === sessionId) {
+      const response = await apiClient.listSessions();
+      if (response.sessions.length > 0) {
+        const next = await apiClient.getSession(response.sessions[0].id);
+        setSnapshot(next);
+      } else {
+        setSnapshot(null);
+      }
+    }
+  };
+
+  const openWorkspaceFile = async (path: string) => {
+    setOpenedFile({
+      path,
+      loading: true,
+      supported: true,
+      reason: null,
+      language: "plaintext",
+      content: "",
+    });
+    let response: WorkspaceFileResponse;
+    try {
+      response = await apiClient.workspaceFile(path);
+    } catch (cause) {
+      setOpenedFile({
+        path,
+        loading: false,
+        supported: false,
+        reason: cause instanceof Error ? cause.message : "Failed to load file",
+        language: "plaintext",
+        content: "",
+      });
+      return;
+    }
+    setOpenedFile({
+      path,
+      loading: false,
+      supported: response.supported,
+      reason: response.reason || null,
+      language: response.language || "plaintext",
+      content: response.content || "",
+    });
+  };
+
+  const closeWorkspaceFile = () => {
+    setOpenedFile(null);
   };
 
   const sendMessage = async (content: string) => {
@@ -299,6 +419,11 @@ export function useConsoleSession() {
     [bootstrap],
   );
 
+  const sessions = useMemo(
+    () => allSessions.filter((item) => !archivedSessionIds.includes(item.id)),
+    [allSessions, archivedSessionIds],
+  );
+
   const activeSessionId = snapshot?.session.id || null;
 
   return {
@@ -306,7 +431,6 @@ export function useConsoleSession() {
     snapshot,
     transportState,
     error,
-    currentPhaseLabel,
     createOptions,
     modelOptions,
     runtimeInfo,
@@ -320,6 +444,12 @@ export function useConsoleSession() {
     refreshSessions,
     refreshWorkspaceTree,
     selectSession,
+    archiveSession,
+    exportSession,
+    deleteSession,
+    openedFile,
+    openWorkspaceFile,
+    closeWorkspaceFile,
     setCreateOptions,
     createSession,
     sendMessage,

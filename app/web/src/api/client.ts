@@ -48,6 +48,14 @@ export interface WorkspaceTreeResponse {
   tree: WorkspaceTreeNode;
 }
 
+export interface WorkspaceFileResponse {
+  path: string;
+  supported: boolean;
+  language?: string;
+  content?: string;
+  reason?: string;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = (await response.json().catch(() => ({ error: "Request failed" }))) as {
@@ -74,6 +82,18 @@ export const apiClient = {
   },
   getSession(sessionId: string): Promise<SessionSnapshot> {
     return fetch(`/api/sessions/${sessionId}`).then((response) => readJson<SessionSnapshot>(response));
+  },
+  deleteSession(sessionId: string): Promise<void> {
+    return fetch(`/api/sessions/${sessionId}`, {
+      method: "DELETE",
+    }).then(async (response) => {
+      if (!response.ok && response.status !== 204) {
+        const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as {
+          error?: string;
+        };
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+    });
   },
   sendMessage(sessionId: string, input: SendMessageInput): Promise<{ accepted: boolean }> {
     return fetch(`/api/sessions/${sessionId}/messages`, {
@@ -104,6 +124,12 @@ export const apiClient = {
     query.set("depth", String(depth));
     return fetch(`/api/workspace-tree?${query.toString()}`).then((response) =>
       readJson<WorkspaceTreeResponse>(response),
+    );
+  },
+  workspaceFile(path: string): Promise<WorkspaceFileResponse> {
+    const query = new URLSearchParams({ path });
+    return fetch(`/api/workspace-file?${query.toString()}`).then((response) =>
+      readJson<WorkspaceFileResponse>(response),
     );
   },
 };

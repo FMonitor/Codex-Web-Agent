@@ -6,7 +6,6 @@ interface HeaderBarProps {
   snapshot: SessionSnapshot | null;
   createOptions: Partial<CreateSessionInput>;
   modelOptions: string[];
-  transportState: string;
   runtimeInfo: RuntimeInfo | null;
   onCreateOptionsChange: Dispatch<SetStateAction<Partial<CreateSessionInput>>>;
   onNewSession: () => void;
@@ -16,12 +15,17 @@ export function HeaderBar({
   snapshot,
   createOptions,
   modelOptions,
-  transportState,
   runtimeInfo,
   onCreateOptionsChange,
   onNewSession,
 }: HeaderBarProps) {
-  const profileOptions = runtimeInfo?.profiles || [];
+  const profileOptions = (runtimeInfo?.profiles || []).filter(
+    (item) => item === "openai-login" || item === "custom-api",
+  );
+  const uniqueProfiles = [...new Set(["custom-api", "openai-login", ...profileOptions])];
+  const modelOptionsWithCurrent = createOptions.model && !modelOptions.includes(createOptions.model)
+    ? [createOptions.model, ...modelOptions]
+    : modelOptions;
 
   return (
     <header className="hero-panel">
@@ -35,7 +39,7 @@ export function HeaderBar({
           <label>
             <span>Profile</span>
             <select
-              value={createOptions.runtimeProfile || ""}
+              value={createOptions.runtimeProfile || "custom-api"}
               onChange={(event) =>
                 onCreateOptionsChange((current) => ({
                   ...current,
@@ -43,8 +47,7 @@ export function HeaderBar({
                 }))
               }
             >
-              <option value="">default</option>
-              {profileOptions.map((profile) => (
+              {uniqueProfiles.map((profile) => (
                 <option key={profile} value={profile}>
                   {profile}
                 </option>
@@ -53,8 +56,7 @@ export function HeaderBar({
           </label>
           <label>
             <span>Model</span>
-            <input
-              list="models-codex"
+            <select
               value={createOptions.model || ""}
               onChange={(event) =>
                 onCreateOptionsChange((current) => ({
@@ -62,13 +64,14 @@ export function HeaderBar({
                   model: event.target.value,
                 }))
               }
-              placeholder="default or custom model id"
-            />
-            <datalist id="models-codex">
-              {modelOptions.map((model) => (
-                <option key={model} value={model} />
+            >
+              <option value="">请选择模型</option>
+              {modelOptionsWithCurrent.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
               ))}
-            </datalist>
+            </select>
           </label>
         </div>
         {runtimeInfo?.notes ? <p className="runtime-note">{runtimeInfo.notes}</p> : null}

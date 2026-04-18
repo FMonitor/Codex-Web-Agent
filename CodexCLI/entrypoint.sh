@@ -40,19 +40,4 @@ EOF
   fi
 fi
 
-if [[ -n "${CODEX_CUSTOM_OPENAI_AUTH_BASE_URL:-}" ]]; then
-  cat >> "${CONFIG_FILE}" <<EOF
-
-[profiles.custom-openai-auth]
-model_provider = "custom_openai_auth"
-model = "${CODEX_CUSTOM_OPENAI_AUTH_MODEL:-$DEFAULT_MODEL}"
-
-[model_providers.custom_openai_auth]
-name = "Custom Provider Reusing OpenAI Auth"
-base_url = "${CODEX_CUSTOM_OPENAI_AUTH_BASE_URL}"
-wire_api = "responses"
-requires_openai_auth = true
-EOF
-fi
-
 exec "$@"

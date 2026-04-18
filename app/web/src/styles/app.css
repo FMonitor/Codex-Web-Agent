@@ -158,6 +158,12 @@ pre {
   padding: 0.78rem 0.9rem;
 }
 
+.runtime-form select,
+.runtime-form select option {
+  background: #151c2b;
+  color: #f7f7f2;
+}
+
 .runtime-note {
   margin: 0.75rem 0 0;
   color: rgba(247, 247, 242, 0.64);
@@ -186,6 +192,10 @@ pre {
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
+}
+
+.layout-shell.sidebar-closed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .left-sidebar {
@@ -254,6 +264,28 @@ pre {
   border-color: rgba(255, 190, 111, 0.8);
 }
 
+.session-item-head {
+  align-items: center;
+}
+
+.session-main {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+}
+
+.session-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
 .tree-list {
   list-style: none;
   padding-left: 0.8rem;
@@ -264,6 +296,47 @@ pre {
 
 .tree-item {
   color: rgba(247, 247, 242, 0.85);
+}
+
+.tree-file-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.file-editor-panel {
+  margin: 0.7rem 1rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 0.75rem;
+  background: rgba(8, 12, 22, 0.65);
+  display: grid;
+  gap: 0.6rem;
+}
+
+.file-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.editor-shell {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.unsupported-file {
+  border-radius: 12px;
+  padding: 0.65rem;
+  border: 1px solid rgba(255, 110, 110, 0.35);
+  color: #ffd2cd;
+  background: rgba(90, 18, 18, 0.25);
 }
 
 .tree-item summary {

@@ -113,7 +113,6 @@ Codex 官方文档当前支持两类主要认证思路：
 
 - `openai-login`
 - `custom-api`
-- `custom-openai-auth`
 
 其中 `custom-api` 会先进入 `APIAdapter` 的 Responses 兼容代理：
 

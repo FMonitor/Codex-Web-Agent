@@ -6,7 +6,7 @@
 
 - 预装 `@openai/codex`
 - 持久化 `~/.codex`
-- 生成 `openai-login`、`custom-api`、`custom-openai-auth` 配置
+- 生成 `openai-login`、`custom-api` 配置
 - 通过挂载宿主目录，保证 `workspacePath` 在容器内可访问
 
 ## 快速启动（单独调试）

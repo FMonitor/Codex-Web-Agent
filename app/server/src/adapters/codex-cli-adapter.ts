@@ -34,14 +34,12 @@ export class CodexCliAdapter implements RuntimeAdapter {
   private readonly configuredProfiles = [
     "openai-login",
     "custom-api",
-    "custom-openai-auth",
   ].filter((value, index, array) => array.indexOf(value) === index);
   private readonly configuredModels = [
     process.env.CODEX_MODEL?.trim(),
     process.env.CODEX_DEFAULT_MODEL?.trim(),
     process.env.CODEX_OPENAI_MODEL?.trim(),
     process.env.CODEX_CUSTOM_API_MODEL?.trim(),
-    process.env.CODEX_CUSTOM_OPENAI_AUTH_MODEL?.trim(),
     "gpt-5-codex",
     "gpt-5",
   ].filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
@@ -432,10 +430,6 @@ export class CodexCliAdapter implements RuntimeAdapter {
   private getProfileBaseUrl(profile: string): string | null {
     if (profile === "custom-api") {
       return process.env.CODEX_CUSTOM_API_BASE_URL?.trim() || "http://127.0.0.1:11434/v1";
-    }
-
-    if (profile === "custom-openai-auth") {
-      return process.env.CODEX_CUSTOM_OPENAI_AUTH_BASE_URL?.trim() || null;
     }
 
     if (profile === "openai-login" && process.env.OPENAI_BASE_URL?.trim()) {

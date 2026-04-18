@@ -3,8 +3,8 @@ import {
   createSessionSchema,
   sendMessageSchema,
 } from "@copilot-console/shared";
-import { lstat, readdir } from "node:fs/promises";
-import { basename, relative, resolve } from "node:path";
+import { lstat, readdir, readFile } from "node:fs/promises";
+import { basename, extname, relative, resolve } from "node:path";
 import type { RuntimeName } from "@copilot-console/shared";
 import type { SessionService } from "../sessions/service.js";
 
@@ -18,12 +18,72 @@ interface WorkspaceTreeNode {
 
 const MAX_TREE_DEPTH = 4;
 const MAX_ENTRIES_PER_DIR = 120;
+const MAX_TEXT_FILE_SIZE = 1024 * 1024;
+
+const TEXT_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".ini", ".env", ".xml", ".html", ".css", ".scss", ".less", ".sh", ".py", ".go", ".rs", ".java", ".cs", ".cpp", ".c", ".h", ".hpp", ".sql", ".log",
+]);
+
+const LANGUAGE_MAP: Record<string, string> = {
+  ".ts": "typescript",
+  ".tsx": "typescript",
+  ".js": "javascript",
+  ".jsx": "javascript",
+  ".mjs": "javascript",
+  ".cjs": "javascript",
+  ".json": "json",
+  ".md": "markdown",
+  ".txt": "plaintext",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".toml": "ini",
+  ".ini": "ini",
+  ".xml": "xml",
+  ".html": "html",
+  ".css": "css",
+  ".scss": "scss",
+  ".less": "less",
+  ".sh": "shell",
+  ".py": "python",
+  ".go": "go",
+  ".rs": "rust",
+  ".java": "java",
+  ".cs": "csharp",
+  ".cpp": "cpp",
+  ".c": "c",
+  ".h": "c",
+  ".hpp": "cpp",
+  ".sql": "sql",
+  ".log": "plaintext",
+};
 
 function isPathInside(parent: string, child: string): boolean {
   if (parent === child) {
     return true;
   }
   return child.startsWith(`${parent}/`);
+}
+
+function hasNullByte(buffer: Buffer): boolean {
+  for (const byte of buffer) {
+    if (byte === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isLikelyTextFile(path: string): boolean {
+  const extension = extname(path).toLowerCase();
+  if (TEXT_EXTENSIONS.has(extension)) {
+    return true;
+  }
+  return basename(path).startsWith(".");
+}
+
+function guessLanguage(path: string): string {
+  const extension = extname(path).toLowerCase();
+  return LANGUAGE_MAP[extension] || "plaintext";
 }
 
 async function buildWorkspaceTree(
@@ -227,6 +287,70 @@ export function createApiRouter(
         requestedPath: inputPath || ".",
         depth,
         tree,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/workspace-file", async (req, res, next) => {
+    try {
+      const rootPath = resolve(defaultWorkspacePath);
+      const inputPath = typeof req.query.path === "string" ? req.query.path.trim() : "";
+      if (!inputPath) {
+        res.status(400).json({ error: "path query is required" });
+        return;
+      }
+
+      const targetPath = resolve(rootPath, inputPath);
+      if (!isPathInside(rootPath, targetPath)) {
+        res.status(400).json({ error: "Requested path is outside the workspace root" });
+        return;
+      }
+
+      const stat = await lstat(targetPath);
+      if (stat.isDirectory()) {
+        res.json({
+          path: inputPath,
+          supported: false,
+          reason: "Directory preview is not supported",
+        });
+        return;
+      }
+
+      if (stat.size > MAX_TEXT_FILE_SIZE) {
+        res.json({
+          path: inputPath,
+          supported: false,
+          reason: `File is larger than ${MAX_TEXT_FILE_SIZE} bytes`,
+        });
+        return;
+      }
+
+      if (!isLikelyTextFile(targetPath)) {
+        res.json({
+          path: inputPath,
+          supported: false,
+          reason: "Unsupported file type",
+        });
+        return;
+      }
+
+      const contentBuffer = await readFile(targetPath);
+      if (hasNullByte(contentBuffer)) {
+        res.json({
+          path: inputPath,
+          supported: false,
+          reason: "Binary file is not supported",
+        });
+        return;
+      }
+
+      res.json({
+        path: inputPath,
+        supported: true,
+        language: guessLanguage(targetPath),
+        content: contentBuffer.toString("utf8"),
       });
     } catch (error) {
       next(error);
