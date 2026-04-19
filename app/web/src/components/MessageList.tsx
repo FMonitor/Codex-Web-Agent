@@ -1,4 +1,4 @@
-import type { ConsoleEvent, SessionSnapshot, ToolExecution, ToolStatus } from "@copilot-console/shared";
+import type { ConsoleEvent, SessionSnapshot, ToolExecution, ToolStatus } from "@codex-web-agent/shared";
 import { Check, ChevronDown, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 
@@ -20,6 +20,7 @@ type StreamEntry =
       kind: "status";
       timestamp: string;
       text: string;
+      running?: boolean;
     }
   | {
       id: string;
@@ -156,6 +157,16 @@ export function MessageList({ snapshot }: MessageListProps) {
       return acc;
     }, []);
 
+    if (snapshot.session.status === "running") {
+      statusEntries.push({
+        id: `evt_running_${snapshot.session.id}`,
+        kind: "status",
+        timestamp: snapshot.session.updatedAt,
+        text: "执行中...",
+        running: true,
+      });
+    }
+
     const toolEntries: StreamEntry[] = snapshot.tools.map((tool) => ({
       id: `tool_${tool.id}`,
       kind: "tool",
@@ -179,12 +190,18 @@ export function MessageList({ snapshot }: MessageListProps) {
       tool: 2,
       log: 3,
     };
+    const entryOrder = (entry: StreamEntry): number => {
+      if (entry.kind === "status" && entry.running) {
+        return 4;
+      }
+      return kindOrder[entry.kind];
+    };
     const ordered = [...messageEntries, ...statusEntries, ...toolEntries, ...logEntries].sort((a, b) => {
       const delta = a.timestamp.localeCompare(b.timestamp);
       if (delta !== 0) {
         return delta;
       }
-      return kindOrder[a.kind] - kindOrder[b.kind];
+      return entryOrder(a) - entryOrder(b);
     });
 
     const merged: StreamEntry[] = [];
@@ -386,9 +403,9 @@ export function MessageList({ snapshot }: MessageListProps) {
 
         if (entry.kind === "status") {
           return (
-            <div key={entry.id} className="status-line">
-              <span className="status-dot">
-                <span className="status-dot-core" />
+            <div key={entry.id} className={`status-line ${entry.running ? "running" : ""}`}>
+              <span className={`status-dot ${entry.running ? "running" : ""}`}>
+                <span className={`status-dot-core ${entry.running ? "running" : ""}`} />
               </span>
               <span>{entry.text}</span>
             </div>

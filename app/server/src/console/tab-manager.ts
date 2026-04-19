@@ -84,7 +84,7 @@ export class ConsoleTabManager {
       throw new Error("Console tab is already running a command");
     }
 
-    const cwdMarker = `__COPILOT_CONSOLE_CWD__${nanoid(10)}__`;
+    const cwdMarker = `__CODEX_WEB_AGENT_CWD__${nanoid(10)}__`;
     const wrappedCommand = `${normalized}\nprintf '%s%s\\n' '${cwdMarker}' "$PWD"`;
 
     const child = spawn(DEFAULT_SHELL, ["-lc", wrappedCommand], {

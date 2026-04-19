@@ -1,4 +1,4 @@
-import type { CreateSessionInput, SessionSnapshot } from "@copilot-console/shared";
+import type { CreateSessionInput, SessionSnapshot } from "@codex-web-agent/shared";
 import type { Dispatch, SetStateAction } from "react";
 import type { RuntimeInfo } from "../api/client";
 

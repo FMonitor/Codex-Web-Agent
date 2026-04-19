@@ -7,7 +7,7 @@ import type {
   SessionSnapshot,
   SessionSummary,
   ToolExecution,
-} from "@copilot-console/shared";
+} from "@codex-web-agent/shared";
 import { createId } from "../utils/ids.js";
 import { nowIso } from "../utils/time.js";
 
@@ -29,12 +29,12 @@ export class SessionStore {
     const timestamp = nowIso();
     const session: SessionSummary = {
       id: createId("sess"),
-      title: input.title?.trim() || "Copilot CLI Session",
+      title: input.title?.trim() || "Codex CLI Session",
       status: "idle",
       workspacePath: input.workspacePath,
       createdAt: timestamp,
       updatedAt: timestamp,
-      runtime: input.runtime || "copilot-cli",
+      runtime: "codex-cli",
       agentId: input.agentId || "default",
       agentRole: input.agentRole || "general",
       currentPhase: "idle",

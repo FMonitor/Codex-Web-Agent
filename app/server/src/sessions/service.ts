@@ -1,4 +1,4 @@
-import type { ConsoleEvent, CreateSessionInput, RuntimeName, SessionSnapshot, SessionSummary } from "@copilot-console/shared";
+import type { ConsoleEvent, CreateSessionInput, RuntimeName, SessionSnapshot, SessionSummary } from "@codex-web-agent/shared";
 import { EventBroker } from "../events/broker.js";
 import { applyEventToRecord } from "../events/reducer.js";
 import type { RuntimeAdapter, RuntimeLoginResult } from "../runtime/runtime-adapter.js";
@@ -21,10 +21,9 @@ export class SessionService {
     }
 
     const pending = this.store.createPendingSession(input);
-    const adapter = this.runtimes.getAdapter(input.runtime);
+    const adapter = this.runtimes.getAdapter();
     const session = await adapter.createSession({
       ...input,
-      runtime: adapter.runtimeName,
       id: pending.session.id,
     });
     const record = this.store.finalizeSession(session);
@@ -54,11 +53,7 @@ export class SessionService {
   async sendMessage(sessionId: string, content: string): Promise<void> {
     this.store.appendUserMessage(sessionId, content);
     const adapter = this.getAdapterForSession(sessionId);
-
-    const prompt = adapter.runtimeName === "codex-cli"
-      ? this.buildCodexPromptWithContext(this.store.getSnapshot(sessionId), content)
-      : content;
-
+    const prompt = this.buildCodexPromptWithContext(this.store.getSnapshot(sessionId), content);
     await adapter.sendMessage(sessionId, prompt);
   }
 
@@ -153,6 +148,8 @@ export class SessionService {
     const lines: string[] = [
       "你正在一个持续会话中执行任务。",
       this.buildLanguageGuidance(latestUserContent),
+      "遇到环境依赖缺失时（例如 python3、pip、venv），先检查并尝试安装，然后继续执行，不要提前结束。",
+      "当某一步失败时，请根据错误自动调整并继续迭代，直到完成用户请求或明确说明无法继续的具体原因。",
       "对于需要多个步骤的请求（实现、修改、调试、运行命令、排查问题），必须先创建 Todo/执行计划，并在关键进展时更新。",
       "执行计划更新过程由系统事件自动展示。除非用户明确要求，不要额外输出“执行计划已创建/更新”这类过程提示。",
       "不要逐项罗列完整 Todo 列表或状态计数，除非用户明确要求。",

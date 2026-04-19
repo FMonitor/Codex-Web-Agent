@@ -1,6 +1,6 @@
 services:
   app:
-    container_name: copilot-console-app
+    container_name: codex-web-agent-app
     build:
       context: ..
       dockerfile: app/Dockerfile
@@ -10,7 +10,6 @@ services:
         APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
     environment:
       PORT: 8787
-      DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-codex-cli}
       DEFAULT_WORKSPACE_PATH: /workspace
       CODEX_CLI_COMMAND: ${CODEX_CLI_COMMAND:-docker exec -i codex-cli-runtime codex}
       CODEX_CUSTOM_API_BASE_URL: ${CODEX_CUSTOM_API_BASE_URL:-http://api-adapter:11434/v1}

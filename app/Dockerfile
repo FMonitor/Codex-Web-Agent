@@ -28,7 +28,7 @@ FROM node:22-bookworm-slim
 ARG APT_MIRROR
 ARG APT_SECURITY_MIRROR
 
-WORKDIR /opt/copilot-console
+WORKDIR /opt/codex-web-agent
 
 # Required for CODEX_CLI_COMMAND using docker exec against the CodexCLI container.
 RUN printf 'Types: deb\nURIs: %s\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: %s\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
@@ -38,11 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   docker.io \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /workspace /opt/copilot-console
+COPY --from=build /workspace /opt/codex-web-agent
 
 ENV NODE_ENV=production
 ENV PORT=8787
 
 EXPOSE 8787
 
-CMD ["npm", "run", "start", "-w", "@copilot-console/server"]
+CMD ["npm", "run", "start", "-w", "@codex-web-agent/server"]

@@ -1,4 +1,4 @@
-import type { ConsoleEvent } from "@copilot-console/shared";
+import type { ConsoleEvent } from "@codex-web-agent/shared";
 
 type Listener = (event: ConsoleEvent) => void;
 

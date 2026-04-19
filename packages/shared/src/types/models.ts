@@ -10,7 +10,7 @@ export type RuntimePhase = (typeof RUNTIME_PHASES)[number];
 export type ToolStatus = (typeof TOOL_STATUSES)[number];
 export type ConsoleEventType = (typeof CONSOLE_EVENT_TYPES)[number];
 
-export type RuntimeName = "copilot-cli" | "codex-cli";
+export type RuntimeName = "codex-cli";
 export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -113,7 +113,6 @@ export interface SessionSnapshot {
 export interface CreateSessionInput {
   title?: string;
   workspacePath: string;
-  runtime?: RuntimeName;
   runtimeProfile?: string;
   model?: string;
   sandboxMode?: SandboxMode;

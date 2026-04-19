@@ -12,7 +12,7 @@
 ## 快速启动（单独调试）
 
 ```bash
-cd /home/monitor/Multi-Copilot/CodexCLI
+cd CodexCLI
 cp .env.example .env
 docker compose up -d --build
 ```

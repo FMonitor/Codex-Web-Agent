@@ -237,9 +237,6 @@ export function App() {
                   <div className="section-head">
                     <div className="section-title-row">
                       <h2>{currentModelLabel}</h2>
-                      {snapshot?.session.status === "running" ? (
-                        <div className="spinner-inline" title="Processing..." aria-label="Processing" />
-                      ) : null}
                     </div>
                   </div>
 

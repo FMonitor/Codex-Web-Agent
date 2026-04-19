@@ -4,7 +4,7 @@ import type {
   RuntimePhase,
   SessionSummary,
   ToolExecution,
-} from "@copilot-console/shared";
+} from "@codex-web-agent/shared";
 import { createId } from "../utils/ids.js";
 import { nowIso } from "../utils/time.js";
 
@@ -209,6 +209,34 @@ function buildTodoProgressMessage(rawType: string, steps: NormalizedTodoStep[]):
   return `${action}：已完成 ${completedCount}/${steps.length}。下一步：整理结果并回复。`;
 }
 
+function buildTodoReplyMessage(rawType: string, steps: NormalizedTodoStep[]): string | null {
+  if (rawType === "item.completed") {
+    return null;
+  }
+
+  const completedCount = steps.filter((step) => step.status === "completed").length;
+  const inProgress = steps.find((step) => step.status === "in_progress");
+  const nextPending = steps.find((step) => step.status === "pending");
+  const nextStep = inProgress || nextPending;
+
+  if (rawType === "item.started") {
+    if (nextStep) {
+      return `我已创建执行计划，当前先处理：${nextStep.text}。我会在关键进展时继续同步。`;
+    }
+    return "我已创建执行计划。下一步我会先拆解任务并开始第一步。";
+  }
+
+  if (steps.length === 0) {
+    return "进展已更新。下一步我会继续推进当前任务并同步结果。";
+  }
+
+  if (nextStep) {
+    return `进展：已完成 ${completedCount}/${steps.length}。下一步我会处理：${nextStep.text}。`;
+  }
+
+  return `进展：已完成 ${completedCount}/${steps.length}。下一步我会整理结果并给出结论。`;
+}
+
 export class CodexEventMapper {
   private readonly messageTextByItemId = new Map<string, string>();
   private readonly threadEventsSeen = new Set<string>();
@@ -351,15 +379,21 @@ export class CodexEventMapper {
     }
 
     if (item.type === "plan_update") {
-      const steps = Array.isArray(item.steps)
-        ? item.steps
-            .map((step) => `${step.status || "pending"}: ${step.description || "step"}`)
-            .join(" | ")
-        : undefined;
+      const steps = normalizeTodoSteps(item);
       events.push({
         ...base("assistant.intent", "planning"),
-        message: steps || item.summary || item.title || "Codex updated the execution plan",
+        message: "执行计划已更新",
       });
+
+      const reply = buildTodoReplyMessage(raw.type, steps);
+      if (reply) {
+        events.push({
+          ...base("assistant.message_complete", "planning"),
+          messageId: `${raw.turn_id || `turn_${this.turnSequence}`}:plan_summary:${itemId}:${raw.type}:${timestamp}`,
+          content: reply,
+        });
+      }
+
       return events;
     }
 
@@ -376,6 +410,15 @@ export class CodexEventMapper {
         events.push({
           ...base("assistant.intent", "planning"),
           message,
+        });
+      }
+
+      const reply = buildTodoReplyMessage(raw.type, effectiveSteps);
+      if (reply) {
+        events.push({
+          ...base("assistant.message_complete", "planning"),
+          messageId: `${raw.turn_id || `turn_${this.turnSequence}`}:todo_summary:${itemId}:${raw.type}:${timestamp}`,
+          content: reply,
         });
       }
 

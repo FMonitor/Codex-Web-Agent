@@ -1,4 +1,4 @@
-import type { ConsoleEvent, CreateSessionInput, RuntimeName, SessionSummary } from "@copilot-console/shared";
+import type { ConsoleEvent, CreateSessionInput, RuntimeName, SessionSummary } from "@codex-web-agent/shared";
 
 export type RuntimeEventListener = (event: ConsoleEvent) => void;
 

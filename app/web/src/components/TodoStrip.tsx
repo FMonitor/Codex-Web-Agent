@@ -1,4 +1,4 @@
-import type { ConsoleEvent, SessionSnapshot } from "@copilot-console/shared";
+import type { ConsoleEvent, SessionSnapshot } from "@codex-web-agent/shared";
 import { ChevronDown, ListTodo } from "lucide-react";
 import { useMemo, useState } from "react";
 

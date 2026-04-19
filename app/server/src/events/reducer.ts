@@ -2,7 +2,7 @@ import type {
   ChatMessage,
   ConsoleEvent,
   ToolExecution,
-} from "@copilot-console/shared";
+} from "@codex-web-agent/shared";
 
 type MutableSessionRecord = import("../sessions/store.js").SessionRecord;
 

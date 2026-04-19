@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@copilot-console/shared";
+import type { SessionSummary } from "@codex-web-agent/shared";
 import type { WorkspaceTreeNode } from "../api/client";
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";

@@ -1,4 +1,4 @@
-import type { ConsoleEvent, FileChange, LogEntry, ToolExecution } from "@copilot-console/shared";
+import type { ConsoleEvent, FileChange, LogEntry, ToolExecution } from "@codex-web-agent/shared";
 
 interface SidebarPanelsProps {
   phase: string;

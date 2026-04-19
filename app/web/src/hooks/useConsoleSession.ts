@@ -4,7 +4,7 @@ import type {
   CreateSessionInput,
   SessionSummary,
   SessionSnapshot,
-} from "@copilot-console/shared";
+} from "@codex-web-agent/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiClient,
@@ -13,7 +13,8 @@ import {
   type WorkspaceTreeNode,
 } from "../api/client";
 
-const ARCHIVE_STORAGE_KEY = "copilot-console-archived-sessions";
+const ARCHIVE_STORAGE_KEY = "codex-web-agent-archived-sessions";
+const LEGACY_ARCHIVE_STORAGE_KEY = "copilot-console-archived-sessions";
 
 interface OpenedFile {
   path: string;
@@ -262,9 +263,17 @@ export function useConsoleSession() {
   useEffect(() => {
     try {
       const value = localStorage.getItem(ARCHIVE_STORAGE_KEY);
-      if (value) {
-        const parsed = JSON.parse(value) as string[];
-        setArchivedSessionIds(parsed);
+      const legacyValue = localStorage.getItem(LEGACY_ARCHIVE_STORAGE_KEY);
+      const source = value || legacyValue;
+      if (!source) {
+        return;
+      }
+
+      const parsed = JSON.parse(source) as string[];
+      setArchivedSessionIds(parsed);
+
+      if (!value && legacyValue) {
+        localStorage.setItem(ARCHIVE_STORAGE_KEY, source);
       }
     } catch {
       // ignore local storage parsing errors
@@ -518,7 +527,6 @@ export function useConsoleSession() {
     const created = await apiClient.createSession({
       title: createOptions.model?.trim() || "新会话",
       workspacePath: bootstrap.defaultWorkspacePath,
-      runtime: "codex-cli",
       runtimeProfile: createOptions.runtimeProfile || "custom-api",
       model: createOptions.model || undefined,
       sandboxMode: createOptions.sandboxMode,

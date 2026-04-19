@@ -2,10 +2,10 @@ import { Router } from "express";
 import {
   createSessionSchema,
   sendMessageSchema,
-} from "@copilot-console/shared";
+} from "@codex-web-agent/shared";
 import { cp, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, relative, resolve } from "node:path";
-import type { RuntimeName } from "@copilot-console/shared";
+import type { RuntimeName } from "@codex-web-agent/shared";
 import { ConsoleTabManager } from "../console/tab-manager.js";
 import type { SessionService } from "../sessions/service.js";
 
@@ -272,7 +272,6 @@ export function createApiRouter(
       const parsed = createSessionSchema.safeParse({
         ...req.body,
         workspacePath: req.body?.workspacePath || defaultWorkspacePath,
-        runtime: sessions.getDefaultRuntime(req.body?.runtime),
       });
       if (!parsed.success) {
         res.status(400).json({ error: parsed.error.flatten() });

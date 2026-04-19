@@ -4,7 +4,7 @@ import type {
   SessionSummary,
   SendMessageInput,
   SessionSnapshot,
-} from "@copilot-console/shared";
+} from "@codex-web-agent/shared";
 
 export interface RuntimeInfo {
   runtime: RuntimeName;

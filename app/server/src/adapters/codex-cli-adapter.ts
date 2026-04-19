@@ -1,4 +1,4 @@
-import type { CreateSessionInput, SessionSummary } from "@copilot-console/shared";
+import type { CreateSessionInput, SessionSummary } from "@codex-web-agent/shared";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { CodexEventMapper, type CodexRawEvent } from "../mappers/codex-event-mapper.js";
 import type { RuntimeAdapter, RuntimeEventListener, RuntimeLoginResult } from "../runtime/runtime-adapter.js";

@@ -1,5 +1,5 @@
 {
-  "name": "@copilot-console/server",
+  "name": "@codex-web-agent/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@copilot-console/shared": "^0.1.0",
+    "@codex-web-agent/shared": "^0.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "nanoid": "^5.1.5"

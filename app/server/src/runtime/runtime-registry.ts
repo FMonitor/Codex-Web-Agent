@@ -1,4 +1,4 @@
-import type { RuntimeName } from "@copilot-console/shared";
+import type { RuntimeName } from "@codex-web-agent/shared";
 import type { RuntimeAdapter, RuntimeInfo } from "./runtime-adapter.js";
 
 export class RuntimeRegistry {

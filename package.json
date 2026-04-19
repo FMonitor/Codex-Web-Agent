@@ -1,5 +1,5 @@
 {
-  "name": "copilot-cli-web-console",
+  "name": "codex-web-agent",
   "version": "0.1.0",
   "private": true,
   "workspaces": [
@@ -7,9 +7,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n shared,server,web -c yellow,cyan,magenta \"npm run dev -w @copilot-console/shared\" \"npm run dev -w @copilot-console/server\" \"npm run dev -w @copilot-console/web\"",
-    "build": "npm run build -w @copilot-console/shared && npm run build -w @copilot-console/server && npm run build -w @copilot-console/web",
-    "start": "npm run start -w @copilot-console/server"
+    "dev": "concurrently -k -n shared,server,web -c yellow,cyan,magenta \"npm run dev -w @codex-web-agent/shared\" \"npm run dev -w @codex-web-agent/server\" \"npm run dev -w @codex-web-agent/web\"",
+    "build": "npm run build -w @codex-web-agent/shared && npm run build -w @codex-web-agent/server && npm run build -w @codex-web-agent/web",
+    "start": "npm run start -w @codex-web-agent/server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

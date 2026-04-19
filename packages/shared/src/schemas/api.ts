@@ -9,7 +9,6 @@ import {
 export const createSessionSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   workspacePath: z.string().trim().min(1),
-  runtime: z.enum(["copilot-cli", "codex-cli"]).optional(),
   runtimeProfile: z.string().trim().min(1).max(80).optional(),
   model: z.string().trim().min(1).max(120).optional(),
   sandboxMode: z.enum(["read-only", "workspace-write", "danger-full-access"]).optional(),

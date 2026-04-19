@@ -9,7 +9,7 @@
 ## 启动
 
 ```bash
-cd /home/monitor/Multi-Copilot/deploy
+cd deploy
 cp .env.example .env
 docker compose up -d --build
 ```
@@ -28,7 +28,7 @@ docker compose up -d --build
 
 说明：
 
-- App 运行代码已打包进镜像内目录 `/opt/copilot-console`。
+- App 运行代码已打包进镜像内目录 `/opt/codex-web-agent`。
 - `/workspace` 仅作为会话工作区挂载点，可保持为空的干净目录，不再要求包含 `package.json`。
 
 ## 模型来源

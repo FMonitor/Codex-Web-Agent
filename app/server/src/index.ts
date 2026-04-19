@@ -3,7 +3,6 @@ import express from "express";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CopilotCliAdapter } from "./adapters/copilot-cli-adapter.js";
 import { CodexCliAdapter } from "./adapters/codex-cli-adapter.js";
 import { createApiRouter } from "./api/routes.js";
 import { EventBroker } from "./events/broker.js";
@@ -13,12 +12,11 @@ import { SessionStore } from "./sessions/store.js";
 
 const port = Number(process.env.PORT || 8787);
 const defaultWorkspacePath = process.env.DEFAULT_WORKSPACE_PATH || process.cwd();
-const defaultRuntime = process.env.DEFAULT_RUNTIME === "copilot-cli" ? "copilot-cli" : "codex-cli";
+const defaultRuntime = "codex-cli" as const;
 
 const app = express();
 const runtimes = new RuntimeRegistry([
   new CodexCliAdapter(),
-  new CopilotCliAdapter(),
 ], defaultRuntime);
 const store = new SessionStore();
 const broker = new EventBroker();
@@ -50,7 +48,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 });
 
 app.listen(port, "0.0.0.0", () => {
-  console.log(`Copilot CLI Web Console server listening on http://0.0.0.0:${port}`);
+  console.log(`Codex Web Agent server listening on http://0.0.0.0:${port}`);
   console.log(`Default runtime: ${sessions.getDefaultRuntime()}`);
   console.log(`Runtime inventory: ${JSON.stringify(sessions.getRuntimeInfo(), null, 2)}`);
   console.log(`Default workspace path: ${defaultWorkspacePath}`);
