@@ -99,9 +99,28 @@ export function MessageList({ snapshot }: MessageListProps) {
       content: log.content,
     }));
 
-    return [...messageEntries, ...statusEntries, ...logEntries].sort((a, b) =>
+    const ordered = [...messageEntries, ...statusEntries, ...logEntries].sort((a, b) =>
       a.timestamp.localeCompare(b.timestamp),
     );
+
+    const merged: StreamEntry[] = [];
+    for (const entry of ordered) {
+      if (entry.kind !== "log") {
+        merged.push(entry);
+        continue;
+      }
+
+      const previous = merged[merged.length - 1];
+      if (previous && previous.kind === "log" && previous.source === entry.source) {
+        previous.content = `${previous.content}\n${entry.content}`;
+        previous.timestamp = entry.timestamp;
+        continue;
+      }
+
+      merged.push({ ...entry });
+    }
+
+    return merged;
   }, [snapshot]);
 
   const toggleLog = (id: string) => {
@@ -149,15 +168,24 @@ export function MessageList({ snapshot }: MessageListProps) {
         }
 
         const isOpen = Boolean(openLogs[entry.id]);
+        const lineCount = entry.content
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean).length;
         return (
           <article key={entry.id} className={`log-bubble log-${entry.source}`}>
             <div className="log-bubble-head">
-              <span>{entry.source.toUpperCase()} 日志</span>
+              <span>
+                {entry.source.toUpperCase()} 日志
+                {lineCount > 1 ? ` (${lineCount} lines)` : ""}
+              </span>
               <button type="button" className="ghost-button small-button" onClick={() => toggleLog(entry.id)}>
-                {isOpen ? "关闭" : "展开"}
+                {isOpen ? "收起" : "展开"}
               </button>
             </div>
-            <p className="muted">{isOpen ? entry.content : toLogPreview(entry.content)}</p>
+            <pre className={`log-content ${isOpen ? "expanded" : "collapsed"}`}>
+              {isOpen ? entry.content : toLogPreview(entry.content)}
+            </pre>
           </article>
         );
       })}

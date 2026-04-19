@@ -36,7 +36,6 @@ function sseStart(res) {
 }
 
 function sseEvent(res, payload) {
-  res.write(`event: ${payload.type}\n`);
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
@@ -103,12 +102,13 @@ function extractText(value) {
 
 function mapResponsesInputToMessages(input, instructions) {
   const messages = [];
+  const systemParts = [];
 
   if (instructions) {
-    messages.push({
-      role: "system",
-      content: extractText(instructions),
-    });
+    const text = extractText(instructions);
+    if (text) {
+      systemParts.push(text);
+    }
   }
 
   const items = Array.isArray(input) ? input : [{ role: "user", content: extractText(input) }];
@@ -118,9 +118,17 @@ function mapResponsesInputToMessages(input, instructions) {
     }
 
     if ((item.type === "message" || item.role) && item.role) {
+      const contentText = extractText(item.content);
+      if (item.role === "developer" || item.role === "system") {
+        if (contentText) {
+          systemParts.push(contentText);
+        }
+        continue;
+      }
+
       messages.push({
-        role: item.role === "developer" ? "system" : item.role,
-        content: extractText(item.content),
+        role: item.role,
+        content: contentText,
       });
       continue;
     }
@@ -150,6 +158,13 @@ function mapResponsesInputToMessages(input, instructions) {
         content: extractText(item.output),
       });
     }
+  }
+
+  if (systemParts.length > 0) {
+    messages.unshift({
+      role: "system",
+      content: systemParts.join("\n\n"),
+    });
   }
 
   return messages;
@@ -416,10 +431,11 @@ async function streamChatAsResponses(reqBody, res) {
     headers.Authorization = `Bearer ${upstreamApiKey}`;
   }
 
+  const chatPayload = buildChatPayload(reqBody);
   const upstreamResponse = await fetch(`${upstreamBaseUrl}/chat/completions`, {
     method: "POST",
     headers,
-    body: JSON.stringify(buildChatPayload(reqBody)),
+    body: JSON.stringify(chatPayload),
   });
 
     if (!upstreamResponse.ok || !upstreamResponse.body) {
@@ -499,61 +515,75 @@ async function streamChatAsResponses(reqBody, res) {
     }
   };
 
-  for await (const chunk of upstreamResponse.body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
+  let streamError = null;
 
-    for (const eventBlock of events) {
-      const lines = eventBlock
+  try {
+    for await (const chunk of upstreamResponse.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+
+      for (const eventBlock of events) {
+        const lines = eventBlock
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const dataLines = lines
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trim());
+        if (dataLines.length === 0) {
+          continue;
+        }
+        const data = dataLines.join("\n");
+        if (data === "[DONE]") {
+          sawDone = true;
+          continue;
+        }
+        try {
+          handleChunk(JSON.parse(data));
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const lastData = buffer
         .split("\n")
         .map((line) => line.trim())
-        .filter(Boolean);
-      const dataLines = lines
         .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim());
-      if (dataLines.length === 0) {
-        continue;
-      }
-      const data = dataLines.join("\n");
-      if (data === "[DONE]") {
-        sawDone = true;
-        continue;
-      }
-      try {
-        handleChunk(JSON.parse(data));
-      } catch {
-        continue;
+        .map((line) => line.slice(5).trim())
+        .join("\n");
+      if (lastData && lastData !== "[DONE]") {
+        try {
+          handleChunk(JSON.parse(lastData));
+        } catch {
+          // ignore trailing parse errors
+        }
       }
     }
-  }
-
-  if (buffer.trim()) {
-    const lastData = buffer
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trim())
-      .join("\n");
-    if (lastData && lastData !== "[DONE]") {
-      try {
-        handleChunk(JSON.parse(lastData));
-      } catch {
-        // ignore trailing parse errors
-      }
-    }
+  } catch (error) {
+    streamError = error;
   }
 
   finishTextItem(state, res);
   finishToolItems(state, res);
 
-  const finalStatus = finishReason === "length" ? "incomplete" : "completed";
+  const finalStatus = streamError
+    ? "failed"
+    : finishReason === "length"
+      ? "incomplete"
+      : "completed";
   sseEvent(res, {
     type: "response.completed",
     response: buildResponseObject(
       state,
       finalStatus,
-      finishReason === "length" ? { reason: "max_output_tokens" } : null,
+      streamError
+        ? { reason: "stream_error" }
+        : finishReason === "length"
+          ? { reason: "max_output_tokens" }
+          : null,
     ),
   });
 

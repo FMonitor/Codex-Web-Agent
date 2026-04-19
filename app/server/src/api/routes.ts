@@ -3,9 +3,10 @@ import {
   createSessionSchema,
   sendMessageSchema,
 } from "@copilot-console/shared";
-import { lstat, readdir, readFile } from "node:fs/promises";
-import { basename, extname, relative, resolve } from "node:path";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, relative, resolve } from "node:path";
 import type { RuntimeName } from "@copilot-console/shared";
+import { ConsoleTabManager } from "../console/tab-manager.js";
 import type { SessionService } from "../sessions/service.js";
 
 interface WorkspaceTreeNode {
@@ -57,6 +58,13 @@ const LANGUAGE_MAP: Record<string, string> = {
   ".log": "plaintext",
 };
 
+const TEXT_BASENAME_LANGUAGE_MAP: Record<string, string> = {
+  Dockerfile: "dockerfile",
+  dockerfile: "dockerfile",
+  Makefile: "makefile",
+  makefile: "makefile",
+};
+
 function isPathInside(parent: string, child: string): boolean {
   if (parent === child) {
     return true;
@@ -73,15 +81,12 @@ function hasNullByte(buffer: Buffer): boolean {
   return false;
 }
 
-function isLikelyTextFile(path: string): boolean {
-  const extension = extname(path).toLowerCase();
-  if (TEXT_EXTENSIONS.has(extension)) {
-    return true;
-  }
-  return basename(path).startsWith(".");
-}
-
 function guessLanguage(path: string): string {
+  const name = basename(path);
+  if (TEXT_BASENAME_LANGUAGE_MAP[name]) {
+    return TEXT_BASENAME_LANGUAGE_MAP[name];
+  }
+
   const extension = extname(path).toLowerCase();
   return LANGUAGE_MAP[extension] || "plaintext";
 }
@@ -135,6 +140,7 @@ export function createApiRouter(
   defaultWorkspacePath: string,
 ): Router {
   const router = Router();
+  const consoleTabs = new ConsoleTabManager();
 
   router.get("/health", (_req, res) => {
     res.json({
@@ -327,15 +333,6 @@ export function createApiRouter(
         return;
       }
 
-      if (!isLikelyTextFile(targetPath)) {
-        res.json({
-          path: inputPath,
-          supported: false,
-          reason: "Unsupported file type",
-        });
-        return;
-      }
-
       const contentBuffer = await readFile(targetPath);
       if (hasNullByte(contentBuffer)) {
         res.json({
@@ -351,6 +348,130 @@ export function createApiRouter(
         supported: true,
         language: guessLanguage(targetPath),
         content: contentBuffer.toString("utf8"),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/workspace-file", async (req, res, next) => {
+    try {
+      const rootPath = resolve(defaultWorkspacePath);
+      const inputPath = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+      const content = typeof req.body?.content === "string" ? req.body.content : "";
+
+      if (!inputPath) {
+        res.status(400).json({ error: "path is required" });
+        return;
+      }
+
+      const targetPath = resolve(rootPath, inputPath);
+      if (!isPathInside(rootPath, targetPath)) {
+        res.status(400).json({ error: "Requested path is outside the workspace root" });
+        return;
+      }
+
+      const targetDir = dirname(targetPath);
+      await mkdir(targetDir, { recursive: true });
+
+      await writeFile(targetPath, content, "utf8");
+
+      res.json({
+        path: inputPath,
+        saved: true,
+        size: Buffer.byteLength(content, "utf8"),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/console/tabs", async (req, res, next) => {
+    try {
+      const rootPath = resolve(defaultWorkspacePath);
+      const inputCwd = typeof req.body?.cwd === "string" ? req.body.cwd.trim() : "";
+      const requestedCwd = inputCwd
+        ? (inputCwd.startsWith("/") ? resolve(inputCwd) : resolve(rootPath, inputCwd))
+        : rootPath;
+
+      if (!isPathInside(rootPath, requestedCwd)) {
+        res.status(400).json({ error: "Requested cwd is outside the workspace root" });
+        return;
+      }
+
+      const cwdStat = await lstat(requestedCwd);
+      if (!cwdStat.isDirectory()) {
+        res.status(400).json({ error: "cwd must be a directory" });
+        return;
+      }
+
+      const tab = consoleTabs.createTab(requestedCwd);
+      res.status(201).json(tab);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/console/tabs/:tabId", (req, res, next) => {
+    try {
+      res.json(consoleTabs.getTab(req.params.tabId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/console/tabs/:tabId/exec", (req, res, next) => {
+    try {
+      const command = typeof req.body?.command === "string" ? req.body.command : "";
+      consoleTabs.execute(req.params.tabId, command);
+      res.json({ accepted: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/console/tabs/:tabId/stop", (req, res, next) => {
+    try {
+      consoleTabs.stop(req.params.tabId);
+      res.json({ accepted: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/console/tabs/:tabId", (req, res, next) => {
+    try {
+      consoleTabs.close(req.params.tabId);
+      res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/console/tabs/:tabId/events", (req, res, next) => {
+    try {
+      const tabId = req.params.tabId;
+      const snapshot = consoleTabs.getTab(tabId);
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+
+      const send = (data: unknown) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      send({ type: "snapshot", snapshot });
+      const unsubscribe = consoleTabs.subscribe(tabId, (event) => send(event));
+      const heartbeat = setInterval(() => {
+        res.write(": heartbeat\n\n");
+      }, 15000);
+
+      req.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+        res.end();
       });
     } catch (error) {
       next(error);

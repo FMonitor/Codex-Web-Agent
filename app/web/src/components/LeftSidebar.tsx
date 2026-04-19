@@ -1,6 +1,7 @@
 import type { SessionSummary } from "@copilot-console/shared";
 import type { WorkspaceTreeNode } from "../api/client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 type SidebarTab = "sessions" | "files";
 
@@ -65,7 +66,43 @@ export function LeftSidebar({
   onExportSession,
   onDeleteSession,
 }: LeftSidebarProps) {
-  const [actionMenuFor, setActionMenuFor] = useState<string | null>(null);
+  const [actionMenu, setActionMenu] = useState<{
+    sessionId: string;
+    top: number;
+    left: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const close = () => setActionMenu(null);
+
+    const onDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+
+      if (target.closest(".session-menu-popup") || target.closest(".session-menu-btn")) {
+        return;
+      }
+      close();
+    };
+
+    const onWindowUpdate = () => close();
+
+    document.addEventListener("mousedown", onDocumentClick);
+    window.addEventListener("resize", onWindowUpdate);
+    window.addEventListener("scroll", onWindowUpdate, true);
+
+    return () => {
+      document.removeEventListener("mousedown", onDocumentClick);
+      window.removeEventListener("resize", onWindowUpdate);
+      window.removeEventListener("scroll", onWindowUpdate, true);
+    };
+  }, []);
+
+  const activeMenuSession = actionMenu
+    ? sessions.find((session) => session.id === actionMenu.sessionId) || null
+    : null;
 
   return (
     <aside className="left-sidebar">
@@ -87,71 +124,120 @@ export function LeftSidebar({
       </div>
 
       <div className="side-panel">
-        {tab === "sessions" ? (
-          <>
-            <div className="side-panel-head">
-              <strong>Session 列表</strong>
-              <button type="button" className="ghost-button small-button" onClick={onRefreshSessions}>
-                刷新
-              </button>
-            </div>
-            <div className="session-list">
-              {sessions.length === 0 ? <p className="muted">暂无 Session</p> : null}
-              {sessions.map((session) => (
-                <div key={session.id} className={`session-item ${activeSessionId === session.id ? "active" : ""}`}>
-                  <div className="row session-item-head">
-                    <button type="button" className="session-main" onClick={() => onSelectSession(session.id)}>
-                      <strong>{session.title}</strong>
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button small-button"
-                      onClick={() => setActionMenuFor((current) => (current === session.id ? null : session.id))}
-                    >
-                      ...
-                    </button>
-                  </div>
-                  <div className="row">
-                    <span className={`pill pill-${session.status}`}>{session.status}</span>
-                  </div>
-                  <div className="muted">{session.runtimeProfile || "default"} / {session.model || "default"}</div>
-                  <div className="muted">{new Date(session.updatedAt).toLocaleString("zh-CN")}</div>
-
-                  {actionMenuFor === session.id ? (
-                    <div className="session-menu">
-                      <button type="button" className="ghost-button small-button" onClick={() => onArchiveSession(session.id)}>
-                        归档
+        <div className="side-panel-viewport" key={tab}>
+          {tab === "sessions" ? (
+            <>
+              <div className="side-panel-head">
+                <strong>Session 列表</strong>
+                <button type="button" className="ghost-button small-button" onClick={onRefreshSessions}>
+                  刷新
+                </button>
+              </div>
+              <div className="session-list">
+                {sessions.length === 0 ? <p className="muted">暂无 Session</p> : null}
+                {sessions.map((session) => (
+                  <div key={session.id} className={`session-item ${activeSessionId === session.id ? "active" : ""}`}>
+                    <div className="row session-item-head">
+                      <button
+                        type="button"
+                        className="session-main"
+                        onClick={() => onSelectSession(session.id)}
+                        title={`${session.runtimeProfile || "default"} / ${session.model || "default"}`}
+                      >
+                        <strong className="session-model">{session.model || "default"}</strong>
                       </button>
-                      <button type="button" className="ghost-button small-button" onClick={() => onExportSession(session.id)}>
-                        导出
-                      </button>
-                      <button type="button" className="ghost-button small-button" onClick={() => onDeleteSession(session.id)}>
-                        删除
+                      <button
+                        type="button"
+                        className="session-menu-btn"
+                        onClick={(event) => {
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setActionMenu((current) =>
+                            current?.sessionId === session.id
+                              ? null
+                              : {
+                                  sessionId: session.id,
+                                  top: rect.bottom + 6,
+                                  left: rect.left,
+                                }
+                          );
+                        }}
+                        title="Options"
+                      >
+                        ⋮
                       </button>
                     </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="side-panel-head">
-              <strong>工作区文件树</strong>
-              <button type="button" className="ghost-button small-button" onClick={onRefreshTree}>
-                刷新
-              </button>
-            </div>
-            <p className="muted">根路径: {workspaceRootLabel}</p>
-            {workspaceTreeLoading ? <p className="muted">加载中...</p> : null}
-            {workspaceTree ? (
-              <ul className="tree-list">
-                <TreeNode node={workspaceTree} onSelectFile={onSelectFile} />
-              </ul>
-            ) : null}
-          </>
-        )}
+                    <div className="session-meta">
+                      <span className="muted">{new Date(session.updatedAt).toLocaleTimeString("zh-CN")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="side-panel-head">
+                <strong>工作区文件树</strong>
+                <button type="button" className="ghost-button small-button" onClick={onRefreshTree}>
+                  刷新
+                </button>
+              </div>
+              <p className="muted">根路径: {workspaceRootLabel}</p>
+              {workspaceTreeLoading ? <p className="muted">加载中...</p> : null}
+              {workspaceTree ? (
+                <ul className="tree-list">
+                  <TreeNode node={workspaceTree} onSelectFile={onSelectFile} />
+                </ul>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
+
+      {activeMenuSession && actionMenu && typeof document !== "undefined"
+        ? createPortal(
+        <div
+          className="session-menu-popup"
+          style={{
+            position: "fixed",
+            top: `${actionMenu.top}px`,
+            left: `${actionMenu.left}px`,
+          }}
+        >
+          <button
+            type="button"
+            className="menu-item"
+            onClick={() => {
+              onArchiveSession(activeMenuSession.id);
+              setActionMenu(null);
+            }}
+          >
+            归档
+          </button>
+          <button
+            type="button"
+            className="menu-item"
+            onClick={() => {
+              onExportSession(activeMenuSession.id);
+              setActionMenu(null);
+            }}
+          >
+            导出
+          </button>
+          <button
+            type="button"
+            className="menu-item menu-item-danger"
+            onClick={() => {
+              onDeleteSession(activeMenuSession.id);
+              setActionMenu(null);
+            }}
+          >
+            删除
+          </button>
+        </div>
+          ,
+          document.body,
+        )
+        : null}
     </aside>
   );
 }

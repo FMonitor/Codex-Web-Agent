@@ -11,8 +11,7 @@ export function Composer({ disabled, isRunning, onSend, onStop }: ComposerProps)
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submitCurrent = async () => {
     const content = value.trim();
     if (!content || disabled || submitting) {
       return;
@@ -26,11 +25,22 @@ export function Composer({ disabled, isRunning, onSend, onStop }: ComposerProps)
     }
   };
 
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await submitCurrent();
+  };
+
   return (
     <form className="composer" onSubmit={handleSubmit}>
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void submitCurrent();
+          }
+        }}
         placeholder="输入任务，例如：请分析 auth 模块，并修复登录逻辑，再运行相关测试"
         rows={3}
         disabled={disabled || submitting}

@@ -96,6 +96,7 @@ function fileChangeType(value?: string): FileChange["changeType"] {
 export class CodexEventMapper {
   private readonly messageTextByItemId = new Map<string, string>();
   private readonly threadEventsSeen = new Set<string>();
+  private turnSequence = 0;
 
   constructor(private readonly session: SessionSummary) {}
 
@@ -129,6 +130,8 @@ export class CodexEventMapper {
     }
 
     if (raw.type === "turn.started") {
+      this.turnSequence += 1;
+      this.messageTextByItemId.clear();
       return [
         {
           ...base("session.started", "planning"),
@@ -182,24 +185,27 @@ export class CodexEventMapper {
     const events: ConsoleEvent[] = [];
 
     if (item.type === "agent_message") {
+      const turnKey = raw.turn_id || `turn_${this.turnSequence}`;
+      const messageKey = `${turnKey}:${itemId}`;
+
       if (raw.type === "item.started") {
         events.push({
           ...base("assistant.message_start", phase),
-          messageId: itemId,
+          messageId: messageKey,
         });
       }
 
       const nextText = typeof item.text === "string" ? item.text : "";
-      const previousText = this.messageTextByItemId.get(itemId) || "";
+      const previousText = this.messageTextByItemId.get(messageKey) || "";
       const delta = nextText.startsWith(previousText) ? nextText.slice(previousText.length) : nextText;
       if (nextText) {
-        this.messageTextByItemId.set(itemId, nextText);
+        this.messageTextByItemId.set(messageKey, nextText);
       }
 
       if (raw.type === "item.updated" && delta) {
         events.push({
           ...base("assistant.message_delta", phase),
-          messageId: itemId,
+          messageId: messageKey,
           content: delta,
         });
       }
@@ -207,7 +213,7 @@ export class CodexEventMapper {
       if (raw.type === "item.completed") {
         events.push({
           ...base("assistant.message_complete", "completed"),
-          messageId: itemId,
+          messageId: messageKey,
           content: nextText || previousText,
         });
       }

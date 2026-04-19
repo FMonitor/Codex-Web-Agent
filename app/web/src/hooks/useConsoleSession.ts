@@ -146,6 +146,8 @@ export function useConsoleSession() {
   const [openedFile, setOpenedFile] = useState<OpenedFile | null>(null);
   const [error, setError] = useState<string>("");
   const eventSourceRef = useRef<EventSource | null>(null);
+  const fileRequestSeqRef = useRef(0);
+  const modelCacheRef = useRef<Record<string, string[]>>({});
 
   const refreshSessions = async () => {
     const response = await apiClient.listSessions();
@@ -190,21 +192,7 @@ export function useConsoleSession() {
           model: data.currentSession?.session.model || current.model || "",
           sandboxMode: data.currentSession?.session.sandboxMode || current.sandboxMode || "workspace-write",
         }));
-        if (data.currentSession) {
-          setSnapshot(data.currentSession);
-          await refreshSessions();
-          await refreshWorkspaceTree();
-          return;
-        }
-        const created = await apiClient.createSession({
-          title: "Quick Console",
-          workspacePath: data.defaultWorkspacePath,
-          runtime: "codex-cli",
-          sandboxMode: "workspace-write",
-          agentId: "default",
-          agentRole: "general",
-        });
-        setSnapshot(created);
+        setSnapshot(data.currentSession || null);
         await refreshSessions();
         await refreshWorkspaceTree();
       })
@@ -217,21 +205,69 @@ export function useConsoleSession() {
     }
 
     const runtime = "codex-cli";
+    const profilesToPrefetch = ["custom-api", "openai-login"];
+    const fallbackRuntime = bootstrap.runtimes.find((item) => item.runtime === runtime);
+    let cancelled = false;
+
+    Promise.all(
+      profilesToPrefetch.map(async (profile) => {
+        try {
+          const response = await apiClient.listRuntimeModels(runtime, profile);
+          return [profile, response.models] as const;
+        } catch {
+          return [profile, fallbackRuntime?.models || []] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) {
+        return;
+      }
+
+      for (const [profile, models] of entries) {
+        modelCacheRef.current[profile] = models;
+      }
+
+      const currentProfile = createOptions.runtimeProfile || "custom-api";
+      setModelOptions(modelCacheRef.current[currentProfile] || []);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrap]);
+
+  useEffect(() => {
+    if (!bootstrap) {
+      return;
+    }
+
+    const runtime = "codex-cli";
     const profile = createOptions.runtimeProfile || "custom-api";
+    const cached = modelCacheRef.current[profile];
+    if (cached && cached.length > 0) {
+      setModelOptions(cached);
+      return;
+    }
+
     let cancelled = false;
 
     apiClient
       .listRuntimeModels(runtime, profile)
       .then((response) => {
-        if (!cancelled) {
-          setModelOptions(response.models);
+        if (cancelled) {
+          return;
         }
+        modelCacheRef.current[profile] = response.models;
+        setModelOptions(response.models);
       })
       .catch(() => {
-        if (!cancelled) {
-          const fallbackRuntime = bootstrap.runtimes.find((item) => item.runtime === runtime);
-          setModelOptions(fallbackRuntime?.models || []);
+        if (cancelled) {
+          return;
         }
+        const fallbackRuntime = bootstrap.runtimes.find((item) => item.runtime === runtime);
+        const fallbackModels = fallbackRuntime?.models || [];
+        modelCacheRef.current[profile] = fallbackModels;
+        setModelOptions(fallbackModels);
       });
 
     return () => {
@@ -303,6 +339,7 @@ export function useConsoleSession() {
     });
     setSnapshot(created);
     await refreshSessions();
+    return created;
   };
 
   const selectSession = async (sessionId: string) => {
@@ -341,6 +378,7 @@ export function useConsoleSession() {
   };
 
   const openWorkspaceFile = async (path: string) => {
+    const requestId = ++fileRequestSeqRef.current;
     setOpenedFile({
       path,
       loading: true,
@@ -353,6 +391,9 @@ export function useConsoleSession() {
     try {
       response = await apiClient.workspaceFile(path);
     } catch (cause) {
+      if (requestId !== fileRequestSeqRef.current) {
+        return;
+      }
       setOpenedFile({
         path,
         loading: false,
@@ -363,6 +404,11 @@ export function useConsoleSession() {
       });
       return;
     }
+
+    if (requestId !== fileRequestSeqRef.current) {
+      return;
+    }
+
     setOpenedFile({
       path,
       loading: false,
@@ -377,19 +423,73 @@ export function useConsoleSession() {
     setOpenedFile(null);
   };
 
+  const saveWorkspaceFile = async (filePath: string, content: string) => {
+    try {
+      await apiClient.saveWorkspaceFile(filePath, content);
+      setOpenedFile((current) => {
+        if (!current || current.path !== filePath) {
+          return current;
+        }
+        return {
+          ...current,
+          content,
+          reason: null,
+        };
+      });
+    } catch (error) {
+      throw error instanceof Error ? error : new Error("Failed to save file");
+    }
+  };
+
   const sendMessage = async (content: string) => {
-    if (!snapshot) {
+    const currentSnapshot = snapshot;
+    
+    // If no session exists, create one first
+    if (!currentSnapshot) {
+      setError("");
+      try {
+        const newSession = await createSession();
+        if (newSession) {
+          // Send message to newly created session
+          const optimisticMessage: ChatMessage = {
+            id: `local_${Date.now()}`,
+            sessionId: newSession.session.id,
+            role: "user",
+            content,
+            createdAt: new Date().toISOString(),
+            agentId: newSession.session.agentId,
+            agentRole: newSession.session.agentRole,
+          };
+          setSnapshot((current) =>
+            current
+              ? {
+                  ...current,
+                  session: {
+                    ...current.session,
+                    lastUserMessage: content,
+                    updatedAt: optimisticMessage.createdAt,
+                  },
+                  messages: [...current.messages, optimisticMessage],
+                }
+              : current,
+          );
+          await apiClient.sendMessage(newSession.session.id, { content });
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to send message");
+      }
       return;
     }
+
     setError("");
     const optimisticMessage: ChatMessage = {
       id: `local_${Date.now()}`,
-      sessionId: snapshot.session.id,
+      sessionId: currentSnapshot.session.id,
       role: "user",
       content,
       createdAt: new Date().toISOString(),
-      agentId: snapshot.session.agentId,
-      agentRole: snapshot.session.agentRole,
+      agentId: currentSnapshot.session.agentId,
+      agentRole: currentSnapshot.session.agentRole,
     };
     setSnapshot((current) =>
       current
@@ -404,7 +504,7 @@ export function useConsoleSession() {
           }
         : current,
     );
-    await apiClient.sendMessage(snapshot.session.id, { content });
+    await apiClient.sendMessage(currentSnapshot.session.id, { content });
   };
 
   const stopSession = async () => {
@@ -450,6 +550,7 @@ export function useConsoleSession() {
     openedFile,
     openWorkspaceFile,
     closeWorkspaceFile,
+    saveWorkspaceFile,
     setCreateOptions,
     createSession,
     sendMessage,

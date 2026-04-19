@@ -1,10 +1,28 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { apiClient } from "./api/client";
 import { Composer } from "./components/Composer";
+import { ConsoleTabPanel } from "./components/ConsoleTabPanel";
 import { FileEditorPanel } from "./components/FileEditorPanel";
 import { HeaderBar } from "./components/HeaderBar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { MessageList } from "./components/MessageList";
+import { TabBar, type TabItem } from "./components/TabBar";
 import { useConsoleSession } from "./hooks/useConsoleSession";
+
+function tabFilePath(tab: TabItem | undefined): string | null {
+  const value = tab?.data?.path;
+  return typeof value === "string" ? value : null;
+}
+
+function tabConsoleId(tab: TabItem | undefined): string | null {
+  const value = tab?.data?.consoleTabId;
+  return typeof value === "string" ? value : null;
+}
+
+function fileNameFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
 
 export function App() {
   const {
@@ -34,8 +52,121 @@ export function App() {
     openedFile,
     openWorkspaceFile,
     closeWorkspaceFile,
+    saveWorkspaceFile,
   } = useConsoleSession();
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [tabError, setTabError] = useState("");
+  const [tabs, setTabs] = useState<TabItem[]>([
+    { id: "agent", type: "agent", label: "Agent", closable: false },
+  ]);
+  const [activeTabId, setActiveTabId] = useState("agent");
+
+  const activeTab = useMemo(
+    () => tabs.find((item) => item.id === activeTabId) || tabs[0],
+    [tabs, activeTabId],
+  );
+
+  const handleSelectTab = (tabId: string) => {
+    setActiveTabId(tabId);
+    const tab = tabs.find((item) => item.id === tabId);
+    const filePath = tabFilePath(tab);
+    if (filePath) {
+      void openWorkspaceFile(filePath);
+    }
+  };
+
+  const handleOpenFileTab = (path: string) => {
+    const tabId = `file:${path}`;
+    setTabError("");
+
+    setTabs((prev) => {
+      if (prev.some((item) => item.id === tabId)) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: tabId,
+          type: "file",
+          label: fileNameFromPath(path),
+          closable: true,
+          data: { path },
+        },
+      ];
+    });
+
+    setActiveTabId(tabId);
+    void openWorkspaceFile(path);
+  };
+
+  const handleCloseTab = (tabId: string) => {
+    const closingTab = tabs.find((item) => item.id === tabId);
+    if (!closingTab || !closingTab.closable) {
+      return;
+    }
+
+    if (closingTab.type === "file") {
+      const closingPath = tabFilePath(closingTab);
+      if (closingPath && openedFile?.path === closingPath) {
+        closeWorkspaceFile();
+      }
+    }
+
+    if (closingTab.type === "console") {
+      const consoleId = tabConsoleId(closingTab);
+      if (consoleId) {
+        void apiClient.deleteConsoleTab(consoleId).catch(() => {
+          // Ignore close errors so the UI tab can still close.
+        });
+      }
+    }
+
+    const closingIndex = tabs.findIndex((item) => item.id === tabId);
+    const nextTabs = tabs.filter((item) => item.id !== tabId);
+    setTabs(nextTabs);
+
+    if (activeTabId === tabId) {
+      const fallback = nextTabs[Math.max(0, closingIndex - 1)]?.id || nextTabs[0]?.id || "agent";
+      setActiveTabId(fallback);
+    }
+  };
+
+  const handleNewConsoleTab = async () => {
+    if (!bootstrap) {
+      return;
+    }
+
+    setTabError("");
+
+    try {
+      const created = await apiClient.createConsoleTab(
+        snapshot?.session.workspacePath || bootstrap.defaultWorkspacePath,
+      );
+      const tabId = `console:${created.id}`;
+
+      setTabs((prev) => {
+        const consoleCount = prev.filter((item) => item.type === "console").length;
+        return [
+          ...prev,
+          {
+            id: tabId,
+            type: "console",
+            label: `Console ${consoleCount + 1}`,
+            closable: true,
+            data: { consoleTabId: created.id },
+          },
+        ];
+      });
+      setActiveTabId(tabId);
+    } catch (cause) {
+      setTabError(cause instanceof Error ? cause.message : "Failed to create console tab");
+    }
+  };
+
+  const isComposerDisabled = false;
+  const activeFilePath = tabFilePath(activeTab);
+  const activeConsoleId = tabConsoleId(activeTab);
 
   return (
     <div className="shell">
@@ -53,7 +184,14 @@ export function App() {
         />
 
         <main className={`layout-shell ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
-          {sidebarOpen ? (
+          <button
+            type="button"
+            className={`sidebar-scrim ${sidebarOpen ? "open" : "closed"}`}
+            aria-label="关闭侧栏"
+            onClick={() => setSidebarOpen(false)}
+          />
+
+          <div className="sidebar-slot">
             <LeftSidebar
               tab={sidebarTab}
               sessions={sessions}
@@ -65,50 +203,90 @@ export function App() {
               onSelectSession={selectSession}
               onRefreshSessions={refreshSessions}
               onRefreshTree={refreshWorkspaceTree}
-              onSelectFile={openWorkspaceFile}
+              onSelectFile={handleOpenFileTab}
               onArchiveSession={archiveSession}
               onExportSession={exportSession}
               onDeleteSession={deleteSession}
             />
-          ) : null}
+          </div>
 
           <section className="chat-card">
-            <div className="section-head">
-              <div>
-                <h2>聊天与执行状态</h2>
-                <p>{snapshot?.session.workspacePath || bootstrap?.defaultWorkspacePath || "loading..."}</p>
-              </div>
-              <div className="row">
-                <button
-                  type="button"
-                  className="ghost-button small-button"
-                  onClick={() => setSidebarOpen((current) => !current)}
-                >
-                  {sidebarOpen ? "隐藏侧栏" : "展开侧栏"}
-                </button>
-                <span className="runtime-command">codex-cli</span>
-              </div>
-            </div>
-
-            {error ? <div className="error-banner">{error}</div> : null}
-            {openedFile ? (
-              <FileEditorPanel
-                filePath={openedFile.path}
-                loading={openedFile.loading}
-                supported={openedFile.supported}
-                reason={openedFile.reason}
-                language={openedFile.language}
-                content={openedFile.content}
-                onClose={closeWorkspaceFile}
-              />
-            ) : null}
-            <MessageList snapshot={snapshot} />
-            <Composer
-              onSend={sendMessage}
-              onStop={stopSession}
-              isRunning={snapshot?.session.status === "running"}
-              disabled={!snapshot}
+            <TabBar
+              activeTabId={activeTabId}
+              tabs={tabs}
+              onSelectTab={handleSelectTab}
+              onCloseTab={handleCloseTab}
+              onNewConsoleTab={() => void handleNewConsoleTab()}
+              canCreateConsole={Boolean(bootstrap)}
+              sidebarOpen={sidebarOpen}
+              onToggleSidebar={() => setSidebarOpen((current) => !current)}
             />
+
+            {tabError ? <div className="error-banner">{tabError}</div> : null}
+
+            <div className="tab-panel-viewport" key={activeTab?.id || "agent"}>
+              {activeTab?.type === "agent" ? (
+                <>
+                <div className="section-head">
+                  <div>
+                    <h2>聊天与执行状态</h2>
+                    <p>{snapshot?.session.workspacePath || bootstrap?.defaultWorkspacePath || "loading..."}</p>
+                  </div>
+                  <div className="row">
+                    {snapshot?.session.status === "running" ? (
+                      <div className="spinner-inline" title="Processing..." />
+                    ) : null}
+                  </div>
+                </div>
+
+                {error ? <div className="error-banner">{error}</div> : null}
+                <MessageList snapshot={snapshot} />
+                <Composer
+                  onSend={sendMessage}
+                  onStop={stopSession}
+                  isRunning={snapshot?.session.status === "running"}
+                  disabled={isComposerDisabled}
+                />
+                </>
+              ) : null}
+
+              {activeTab?.type === "file" && activeFilePath ? (
+                <FileEditorPanel
+                  filePath={openedFile?.path || activeFilePath}
+                  loading={!openedFile || openedFile.path !== activeFilePath || openedFile.loading}
+                  supported={openedFile?.path === activeFilePath ? openedFile.supported : true}
+                  reason={openedFile?.path === activeFilePath ? openedFile.reason : null}
+                  language={openedFile?.path === activeFilePath ? openedFile.language : "plaintext"}
+                  content={openedFile?.path === activeFilePath ? openedFile.content : ""}
+                  onClose={() => handleCloseTab(activeTab.id)}
+                  onSave={saveWorkspaceFile}
+                />
+              ) : null}
+
+              {activeTab?.type === "console" && activeConsoleId ? (
+                <ConsoleTabPanel consoleTabId={activeConsoleId} />
+              ) : null}
+
+              {activeTab?.type === "file" && !activeFilePath ? (
+                <div className="empty-state">文件标签缺少路径信息</div>
+              ) : null}
+
+              {activeTab?.type === "console" && !activeConsoleId ? (
+                <div className="empty-state">Console 标签缺少实例标识</div>
+              ) : null}
+
+              {activeTab?.type === "file" && activeFilePath && openedFile?.path !== activeFilePath ? (
+                <div className="empty-state">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => void openWorkspaceFile(activeFilePath)}
+                  >
+                    重新加载文件
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </section>
         </main>
       </div>

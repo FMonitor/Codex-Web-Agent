@@ -56,6 +56,30 @@ export interface WorkspaceFileResponse {
   reason?: string;
 }
 
+export type ConsoleTabStatus = "idle" | "running";
+export type ConsoleTabEntrySource = "stdout" | "stderr" | "system";
+
+export interface ConsoleTabEntry {
+  id: string;
+  source: ConsoleTabEntrySource;
+  content: string;
+  timestamp: string;
+}
+
+export interface ConsoleTabSnapshot {
+  id: string;
+  cwd: string;
+  status: ConsoleTabStatus;
+  createdAt: string;
+  updatedAt: string;
+  entries: ConsoleTabEntry[];
+}
+
+export type ConsoleTabEvent =
+  | { type: "snapshot"; snapshot: ConsoleTabSnapshot }
+  | { type: "entry"; entry: ConsoleTabEntry }
+  | { type: "status"; status: ConsoleTabStatus; updatedAt: string; message?: string };
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = (await response.json().catch(() => ({ error: "Request failed" }))) as {
@@ -131,5 +155,46 @@ export const apiClient = {
     return fetch(`/api/workspace-file?${query.toString()}`).then((response) =>
       readJson<WorkspaceFileResponse>(response),
     );
+  },
+  saveWorkspaceFile(path: string, content: string): Promise<{ saved: boolean; size: number }> {
+    return fetch("/api/workspace-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, content }),
+    }).then((response) => readJson<{ saved: boolean; size: number }>(response));
+  },
+  createConsoleTab(cwd?: string): Promise<ConsoleTabSnapshot> {
+    return fetch("/api/console/tabs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd }),
+    }).then((response) => readJson<ConsoleTabSnapshot>(response));
+  },
+  getConsoleTab(tabId: string): Promise<ConsoleTabSnapshot> {
+    return fetch(`/api/console/tabs/${tabId}`).then((response) => readJson<ConsoleTabSnapshot>(response));
+  },
+  execConsoleTab(tabId: string, command: string): Promise<{ accepted: boolean }> {
+    return fetch(`/api/console/tabs/${tabId}/exec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command }),
+    }).then((response) => readJson<{ accepted: boolean }>(response));
+  },
+  stopConsoleTab(tabId: string): Promise<{ accepted: boolean }> {
+    return fetch(`/api/console/tabs/${tabId}/stop`, {
+      method: "POST",
+    }).then((response) => readJson<{ accepted: boolean }>(response));
+  },
+  deleteConsoleTab(tabId: string): Promise<void> {
+    return fetch(`/api/console/tabs/${tabId}`, {
+      method: "DELETE",
+    }).then(async (response) => {
+      if (!response.ok && response.status !== 204) {
+        const payload = (await response.json().catch(() => ({ error: "Request failed" }))) as {
+          error?: string;
+        };
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+    });
   },
 };

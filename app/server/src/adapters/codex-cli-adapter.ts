@@ -16,6 +16,10 @@ interface CodexSessionState {
   mapper: CodexEventMapper;
 }
 
+function isBenignStderrLine(line: string): boolean {
+  return /reading additional input from stdin/i.test(line);
+}
+
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -161,19 +165,23 @@ export class CodexCliAdapter implements RuntimeAdapter {
 
   async listModels(profile?: string): Promise<string[]> {
     const profileName = profile?.trim() || this.defaultProfile || "custom-api";
+    const fallbackByProfile = this.getConfiguredModelsForProfile(profileName);
     const endpoint = this.getModelsEndpoint(profileName);
     if (!endpoint) {
-      return this.configuredModels;
+      return fallbackByProfile;
     }
 
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(endpoint, {
         headers: {
           Accept: "application/json",
         },
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
       if (!response.ok) {
-        return this.configuredModels;
+        return fallbackByProfile;
       }
 
       const payload = (await response.json()) as {
@@ -188,12 +196,40 @@ export class CodexCliAdapter implements RuntimeAdapter {
         ? payload.models.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
         : [];
 
-      return [...dynamicModels, ...fallbackModels, ...this.configuredModels].filter(
+      const dynamic = [...dynamicModels, ...fallbackModels].filter(
+        (value, index, array) => array.indexOf(value) === index,
+      );
+
+      if (dynamic.length > 0) {
+        return dynamic;
+      }
+
+      return [...fallbackByProfile].filter(
         (value, index, array) => array.indexOf(value) === index,
       );
     } catch {
-      return this.configuredModels;
+      return fallbackByProfile;
     }
+  }
+
+  private getConfiguredModelsForProfile(profileName: string): string[] {
+    if (profileName === "custom-api") {
+      return [
+        process.env.CODEX_CUSTOM_API_MODEL?.trim(),
+        process.env.CODEX_MODEL?.trim(),
+        process.env.CODEX_DEFAULT_MODEL?.trim(),
+      ].filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
+    }
+
+    if (profileName === "openai-login") {
+      return [
+        process.env.CODEX_OPENAI_MODEL?.trim(),
+        "gpt-5-codex",
+        "gpt-5",
+      ].filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
+    }
+
+    return this.configuredModels;
   }
 
   private startRun(state: CodexSessionState, prompt: string): void {
@@ -266,6 +302,10 @@ export class CodexCliAdapter implements RuntimeAdapter {
         .filter(Boolean);
 
       for (const line of lines) {
+        if (isBenignStderrLine(line)) {
+          continue;
+        }
+
         this.publish(state, {
           id: createId("evt"),
           sessionId: state.session.id,
@@ -284,20 +324,6 @@ export class CodexCliAdapter implements RuntimeAdapter {
             agentRole: state.session.agentRole,
           },
         });
-
-        if (line.includes("Reading additional input from stdin")) {
-          this.publish(state, {
-            id: createId("evt"),
-            sessionId: state.session.id,
-            type: "assistant.intent",
-            timestamp: nowIso(),
-            agentId: state.session.agentId,
-            agentRole: state.session.agentRole,
-            phase: "approval",
-            message: "Codex 正在等待补充输入（stdin）。",
-            status: "waiting_input",
-          });
-        }
       }
     });
 
@@ -315,6 +341,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
         status: "failed",
       });
     });
+
 
     child.on("exit", (code, signal) => {
       state.currentProcess = null;
@@ -358,16 +385,12 @@ export class CodexCliAdapter implements RuntimeAdapter {
   }
 
   private buildArgs(state: CodexSessionState, prompt: string): string[] {
-    const args = ["exec"];
-    if (state.threadId) {
-      args.push("resume", state.threadId);
-    }
-    args.push("--json", "--color", "never", "--cd", state.session.workspacePath);
+    const args = ["exec", "--json", "--cd", state.session.workspacePath];
 
     if (state.session.sandboxMode) {
       args.push("--sandbox", state.session.sandboxMode);
     }
-    args.push("--skip-git-repo-check");
+    args.push("--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox");
     if (state.session.runtimeProfile) {
       args.push("--profile", state.session.runtimeProfile);
     }

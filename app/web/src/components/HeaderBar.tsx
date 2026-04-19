@@ -28,56 +28,57 @@ export function HeaderBar({
     : modelOptions;
 
   return (
-    <header className="hero-panel">
-      <div className="hero-copy">
-        <span className="eyebrow">Codex Chat Console</span>
-        <h1>单会话 Codex 控制台</h1>
-        <p>
-          发送消息后会在聊天区显示 Agent 回复、工具调用状态、文件读取/修改进度，以及可折叠执行日志。
-        </p>
-        <div className="runtime-form">
-          <label>
-            <span>Profile</span>
-            <select
-              value={createOptions.runtimeProfile || "custom-api"}
-              onChange={(event) =>
-                onCreateOptionsChange((current) => ({
-                  ...current,
-                  runtimeProfile: event.target.value,
-                }))
-              }
-            >
-              {uniqueProfiles.map((profile) => (
-                <option key={profile} value={profile}>
-                  {profile}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Model</span>
-            <select
-              value={createOptions.model || ""}
-              onChange={(event) =>
-                onCreateOptionsChange((current) => ({
-                  ...current,
-                  model: event.target.value,
-                }))
-              }
-            >
-              <option value="">请选择模型</option>
-              {modelOptionsWithCurrent.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {runtimeInfo?.notes ? <p className="runtime-note">{runtimeInfo.notes}</p> : null}
+    <header className="top-header">
+      <div className="header-title">
+        <h1>Codex Web Agent</h1>
       </div>
-      <div className="hero-actions">
-        <button className="secondary-button" onClick={onNewSession} disabled={snapshot?.session.status === "running"}>
+
+      <div className="header-controls">
+        <div className="control-group">
+          <select
+            className="profile-select"
+            value={createOptions.runtimeProfile || "custom-api"}
+            onChange={(event) =>
+              onCreateOptionsChange((current) => ({
+                ...current,
+                runtimeProfile: event.target.value,
+              }))
+            }
+            title="Profile"
+          >
+            {uniqueProfiles.map((profile) => (
+              <option key={profile} value={profile}>
+                {profile}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="model-select"
+            value={createOptions.model || ""}
+            onChange={(event) =>
+              onCreateOptionsChange((current) => ({
+                ...current,
+                model: event.target.value,
+              }))
+            }
+            title="Model"
+          >
+            <option value="">选择模型</option>
+            {modelOptionsWithCurrent.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          className="primary-button"
+          onClick={onNewSession}
+          disabled={snapshot?.session.status === "running"}
+          title="Create new session"
+        >
           新建会话
         </button>
       </div>
