@@ -69,6 +69,10 @@ export interface WorkspaceCopyResponse {
   targetPath: string;
 }
 
+export interface WorkspaceCopyOptions {
+  autoRename?: boolean;
+}
+
 export interface WorkspaceMoveResponse {
   moved: boolean;
   sourcePath: string;
@@ -205,11 +209,15 @@ export const apiClient = {
       body: JSON.stringify({ path, content }),
     }).then((response) => readJson<{ saved: boolean; size: number }>(response));
   },
-  copyWorkspaceEntry(sourcePath: string, targetPath: string): Promise<WorkspaceCopyResponse> {
+  copyWorkspaceEntry(
+    sourcePath: string,
+    targetPath: string,
+    options?: WorkspaceCopyOptions,
+  ): Promise<WorkspaceCopyResponse> {
     return fetch("/api/workspace-entries/copy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourcePath, targetPath }),
+      body: JSON.stringify({ sourcePath, targetPath, autoRename: Boolean(options?.autoRename) }),
     }).then((response) => readJson<WorkspaceCopyResponse>(response));
   },
   moveWorkspaceEntry(sourcePath: string, targetPath: string): Promise<WorkspaceMoveResponse> {

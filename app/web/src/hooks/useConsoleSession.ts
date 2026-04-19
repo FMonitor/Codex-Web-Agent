@@ -636,8 +636,12 @@ export function useConsoleSession() {
     }
   };
 
-  const copyWorkspaceEntry = async (sourcePath: string, targetPath: string) => {
-    const result = await apiClient.copyWorkspaceEntry(sourcePath, targetPath);
+  const copyWorkspaceEntry = async (
+    sourcePath: string,
+    targetPath: string,
+    options?: { autoRename?: boolean },
+  ) => {
+    const result = await apiClient.copyWorkspaceEntry(sourcePath, targetPath, options);
     await refreshWorkspaceTree({ silent: true });
     return result;
   };

@@ -153,6 +153,7 @@ export class SessionService {
     const lines: string[] = [
       "你正在一个持续会话中执行任务。",
       this.buildLanguageGuidance(latestUserContent),
+      "对于需要多个步骤的请求（实现、修改、调试、运行命令、排查问题），必须先创建 Todo/执行计划，并在关键进展时更新。",
       "执行计划更新过程由系统事件自动展示。除非用户明确要求，不要额外输出“执行计划已创建/更新”这类过程提示。",
       "不要逐项罗列完整 Todo 列表或状态计数，除非用户明确要求。",
     ];

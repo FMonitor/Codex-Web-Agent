@@ -102,6 +102,33 @@ function resolveWorkspacePath(rootPath: string, inputPath: string): { relativePa
   return { relativePath, absolutePath };
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    const errno = error as NodeJS.ErrnoException;
+    if (errno.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function buildCopyConflictPath(targetRelativePath: string, attempt: number, isDirectory: boolean): string {
+  const normalized = normalizeWorkspaceRelativePath(targetRelativePath);
+  const parts = normalized.split("/");
+  const name = parts.pop() || "item";
+  const parent = parts.join("/");
+
+  const extension = isDirectory ? "" : extname(name);
+  const baseName = extension ? name.slice(0, -extension.length) : name;
+  const suffix = attempt === 1 ? "-copy" : `-copy-${attempt}`;
+  const nextName = `${baseName}${suffix}${extension}`;
+
+  return parent ? `${parent}/${nextName}` : nextName;
+}
+
 async function buildWorkspaceTree(
   absolutePath: string,
   rootPath: string,
@@ -462,6 +489,7 @@ export function createApiRouter(
       const rootPath = resolve(defaultWorkspacePath);
       const sourceInput = typeof req.body?.sourcePath === "string" ? req.body.sourcePath : "";
       const targetInput = typeof req.body?.targetPath === "string" ? req.body.targetPath : "";
+      const autoRename = Boolean(req.body?.autoRename);
 
       if (!sourceInput.trim() || !targetInput.trim()) {
         res.status(400).json({ error: "sourcePath and targetPath are required" });
@@ -470,8 +498,9 @@ export function createApiRouter(
 
       const source = resolveWorkspacePath(rootPath, sourceInput);
       const target = resolveWorkspacePath(rootPath, targetInput);
+      let resolvedTarget = target;
 
-      if (!isPathInside(rootPath, source.absolutePath) || !isPathInside(rootPath, target.absolutePath)) {
+      if (!isPathInside(rootPath, source.absolutePath) || !isPathInside(rootPath, resolvedTarget.absolutePath)) {
         res.status(400).json({ error: "Requested path is outside the workspace root" });
         return;
       }
@@ -481,48 +510,72 @@ export function createApiRouter(
         return;
       }
 
-      if (target.relativePath === ".") {
+      if (resolvedTarget.relativePath === ".") {
         res.status(400).json({ error: "targetPath cannot be workspace root" });
         return;
       }
 
-      if (source.absolutePath === target.absolutePath) {
+      if (source.absolutePath === resolvedTarget.absolutePath && !autoRename) {
         res.status(400).json({ error: "targetPath must be different from sourcePath" });
         return;
       }
 
       const sourceStat = await lstat(source.absolutePath);
-      if (sourceStat.isDirectory() && isPathInside(source.absolutePath, target.absolutePath)) {
+      let renameAttempt = 0;
+      if (autoRename) {
+        while (await pathExists(resolvedTarget.absolutePath)) {
+          renameAttempt += 1;
+          resolvedTarget = resolveWorkspacePath(
+            rootPath,
+            buildCopyConflictPath(target.relativePath, renameAttempt, sourceStat.isDirectory()),
+          );
+        }
+      }
+
+      if (sourceStat.isDirectory() && isPathInside(source.absolutePath, resolvedTarget.absolutePath)) {
         res.status(400).json({ error: "Cannot copy a directory into its own subdirectory" });
         return;
       }
 
-      await mkdir(dirname(target.absolutePath), { recursive: true });
+      while (true) {
+        await mkdir(dirname(resolvedTarget.absolutePath), { recursive: true });
 
-      try {
-        await cp(source.absolutePath, target.absolutePath, {
-          recursive: sourceStat.isDirectory(),
-          force: false,
-          errorOnExist: true,
-          preserveTimestamps: true,
-        });
-      } catch (error) {
-        const errno = error as NodeJS.ErrnoException;
-        if (errno.code === "EEXIST") {
-          res.status(409).json({ error: "targetPath already exists" });
-          return;
+        try {
+          await cp(source.absolutePath, resolvedTarget.absolutePath, {
+            recursive: sourceStat.isDirectory(),
+            force: false,
+            errorOnExist: true,
+            preserveTimestamps: true,
+          });
+          break;
+        } catch (error) {
+          const errno = error as NodeJS.ErrnoException;
+          if (errno.code === "EEXIST") {
+            if (!autoRename) {
+              res.status(409).json({ error: "targetPath already exists" });
+              return;
+            }
+
+            renameAttempt += 1;
+            resolvedTarget = resolveWorkspacePath(
+              rootPath,
+              buildCopyConflictPath(target.relativePath, renameAttempt, sourceStat.isDirectory()),
+            );
+            continue;
+          }
+
+          if (errno.code === "ENOENT") {
+            res.status(404).json({ error: "sourcePath does not exist" });
+            return;
+          }
+          throw error;
         }
-        if (errno.code === "ENOENT") {
-          res.status(404).json({ error: "sourcePath does not exist" });
-          return;
-        }
-        throw error;
       }
 
       res.json({
         copied: true,
         sourcePath: source.relativePath,
-        targetPath: target.relativePath,
+        targetPath: resolvedTarget.relativePath,
       });
     } catch (error) {
       next(error);

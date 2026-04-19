@@ -17,7 +17,11 @@ interface LeftSidebarProps {
   onArchiveSession: (sessionId: string) => void;
   onExportSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
-  onCopyEntry: (sourcePath: string, targetPath: string) => Promise<unknown>;
+  onCopyEntry: (
+    sourcePath: string,
+    targetPath: string,
+    options?: { autoRename?: boolean },
+  ) => Promise<unknown>;
   onMoveEntry: (sourcePath: string, targetPath: string) => Promise<unknown>;
   onDeleteEntry: (path: string) => Promise<unknown>;
 }
@@ -357,6 +361,8 @@ export function LeftSidebar({
   };
 
   const handleDirectoryDragOver = (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => {
+    event.stopPropagation();
+
     if (node.type !== "directory") {
       return;
     }
@@ -389,6 +395,8 @@ export function LeftSidebar({
   };
 
   const handleDirectoryDragLeave = (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => {
+    event.stopPropagation();
+
     const relatedTarget = event.relatedTarget as Node | null;
     if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
       return;
@@ -404,6 +412,8 @@ export function LeftSidebar({
   };
 
   const handleDirectoryDrop = (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => {
+    event.stopPropagation();
+
     if (node.type !== "directory") {
       return;
     }
@@ -475,7 +485,7 @@ export function LeftSidebar({
 
     setFileActionBusy(true);
     try {
-      await onCopyEntry(copiedEntry.path, targetPath);
+      await onCopyEntry(copiedEntry.path, targetPath, { autoRename: true });
       setFileMenu(null);
       setDeleteConfirmPath(null);
       clearDeleteConfirmTimer();

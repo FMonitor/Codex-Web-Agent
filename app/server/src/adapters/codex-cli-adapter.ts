@@ -159,7 +159,29 @@ export class CodexCliAdapter implements RuntimeAdapter {
     const state = this.getSessionState(sessionId);
     state.stoppedByUser = true;
     state.queuedMessages = [];
-    state.currentProcess?.kill("SIGTERM");
+
+    const child = state.currentProcess;
+    if (!child) {
+      this.publish(state, {
+        id: createId("evt"),
+        sessionId: state.session.id,
+        type: "session.stopped",
+        timestamp: nowIso(),
+        agentId: state.session.agentId,
+        agentRole: state.session.agentRole,
+        phase: "idle",
+        message: "Codex execution cancelled",
+        status: "stopped",
+      });
+      return;
+    }
+
+    this.terminateProcess(child, "SIGTERM");
+    setTimeout(() => {
+      if (state.currentProcess === child) {
+        this.terminateProcess(child, "SIGKILL");
+      }
+    }, 1500);
   }
 
   async subscribe(sessionId: string, listener: RuntimeEventListener): Promise<() => void> {
@@ -175,7 +197,9 @@ export class CodexCliAdapter implements RuntimeAdapter {
     if (!state) {
       return;
     }
-    state.currentProcess?.kill("SIGTERM");
+    if (state.currentProcess) {
+      this.terminateProcess(state.currentProcess, "SIGTERM");
+    }
     this.sessions.delete(sessionId);
   }
 
@@ -478,6 +502,22 @@ export class CodexCliAdapter implements RuntimeAdapter {
       return;
     }
 
+    if (state.stoppedByUser) {
+      this.publish(state, {
+        id: createId("evt"),
+        sessionId: state.session.id,
+        type: "session.stopped",
+        timestamp: nowIso(),
+        agentId: state.session.agentId,
+        agentRole: state.session.agentRole,
+        phase: "idle",
+        message: "Codex execution cancelled",
+        status: "stopped",
+      });
+      state.stoppedByUser = false;
+      return;
+    }
+
     this.startRun(state, prompt);
   }
 
@@ -678,6 +718,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
       return spawn(command, {
         cwd,
         shell: true,
+        detached: true,
         stdio: "pipe",
         env: process.env,
       });
@@ -685,9 +726,28 @@ export class CodexCliAdapter implements RuntimeAdapter {
 
     return spawn("codex", args, {
       cwd,
+      detached: true,
       stdio: "pipe",
       env: process.env,
     });
+  }
+
+  private terminateProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
+    const pid = child.pid;
+
+    if (typeof pid === "number" && Number.isFinite(pid) && process.platform !== "win32") {
+      try {
+        process.kill(-pid, signal);
+      } catch {
+        // Ignore process group termination errors and fall back to child kill.
+      }
+    }
+
+    try {
+      child.kill(signal);
+    } catch {
+      // Process may have exited already.
+    }
   }
 
   private publish(state: CodexSessionState, event: Parameters<RuntimeEventListener>[0]): void {

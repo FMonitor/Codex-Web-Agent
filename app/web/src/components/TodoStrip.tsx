@@ -51,7 +51,7 @@ function normalizeTodoStatus(status?: string, completed?: boolean): string {
 }
 
 function parseTodoAction(message: string, rawType?: string): string | null {
-  const actionMatch = message.match(/^Todo 列表已(创建|更新|完成|变更)/);
+  const actionMatch = message.match(/^(?:Todo 列表已|执行计划已)(创建|更新|完成|变更)/);
   if (actionMatch) {
     return actionMatch[1];
   }
@@ -172,8 +172,9 @@ function parseTodoEvent(event: ConsoleEvent): TodoView | null {
   const raw = event.raw as { type?: string; item?: RawTodoPayload } | undefined;
   const message = (event.message || event.content || "").trim();
   const isRawTodo = raw?.item?.type === "todo_list";
-  const action = parseTodoAction(message, raw?.type);
-  if (!action || !isRawTodo && !message.includes("Todo 列表")) {
+  const isPlanUpdate = raw?.item?.type === "plan_update";
+  const action = parseTodoAction(message, raw?.type) || (isPlanUpdate ? "更新" : null);
+  if (!action || (!isRawTodo && !isPlanUpdate && !message.includes("Todo 列表") && !message.includes("执行计划"))) {
     return null;
   }
 

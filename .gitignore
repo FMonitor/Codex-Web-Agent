@@ -8,3 +8,4 @@ npm-debug.log*
 app/web/dist
 app/server/dist
 packages/shared/dist
+/workspace
