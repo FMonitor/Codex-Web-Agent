@@ -5,7 +5,7 @@ import type {
   SessionSummary,
   SessionSnapshot,
 } from "@copilot-console/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiClient,
   type BootstrapResponse,
@@ -149,21 +149,30 @@ export function useConsoleSession() {
   const fileRequestSeqRef = useRef(0);
   const modelCacheRef = useRef<Record<string, string[]>>({});
 
-  const refreshSessions = async () => {
+  const refreshSessions = useCallback(async () => {
     const response = await apiClient.listSessions();
     setAllSessions(response.sessions);
-  };
+  }, []);
 
-  const refreshWorkspaceTree = async () => {
-    setWorkspaceTreeLoading(true);
+  const refreshWorkspaceTree = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setWorkspaceTreeLoading(true);
+    }
     try {
-      const response = await apiClient.workspaceTree("Multi-Copilot", 3);
-      setWorkspaceRootLabel(`${response.rootPath}/${response.requestedPath}`.replace(/\/$/, ""));
+      const response = await apiClient.workspaceTree(undefined, 3);
+      const requestedPath = response.requestedPath === "." ? "" : response.requestedPath.replace(/^\.\//, "");
+      const label = requestedPath
+        ? `${response.rootPath}/${requestedPath}`.replace(/\/$/, "")
+        : response.rootPath;
+      setWorkspaceRootLabel(label);
       setWorkspaceTree(response.tree);
     } finally {
-      setWorkspaceTreeLoading(false);
+      if (!silent) {
+        setWorkspaceTreeLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     try {
@@ -305,7 +314,42 @@ export function useConsoleSession() {
       return;
     }
     void refreshWorkspaceTree();
-  }, [snapshot?.fileChanges[0]?.id]);
+  }, [snapshot?.fileChanges[0]?.id, refreshWorkspaceTree]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const poll = async () => {
+      if (disposed) {
+        return;
+      }
+
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+
+      try {
+        await refreshSessions();
+      } catch {
+        // Ignore background polling failures.
+      }
+
+      try {
+        await refreshWorkspaceTree({ silent: true });
+      } catch {
+        // Ignore background polling failures.
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 10000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshSessions, refreshWorkspaceTree]);
 
   useEffect(() => {
     if (!snapshot) {

@@ -20,12 +20,14 @@
 html,
 body,
 #root {
+  height: 100%;
   min-height: 100%;
   margin: 0;
 }
 
 body {
   min-height: 100vh;
+  overflow: hidden;
 }
 
 button,
@@ -40,6 +42,7 @@ pre {
 
 .shell {
   position: relative;
+  height: 100vh;
   min-height: 100vh;
   overflow: hidden;
 }
@@ -72,7 +75,8 @@ pre {
   z-index: 1;
   width: 100%;
   margin: 0;
-  padding: 0 0 1rem;
+  padding: 0;
+  height: 100vh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -200,7 +204,8 @@ pre {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-top: 0;
   background: rgba(11, 18, 29, 0.72);
-  transition: grid-template-columns 220ms ease;
+  overflow: hidden;
+  transition: grid-template-columns 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .layout-shell.sidebar-closed {
@@ -210,11 +215,16 @@ pre {
 .sidebar-slot {
   min-width: 0;
   overflow: hidden;
-  transition: transform 220ms ease, opacity 220ms ease;
+  transition: transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 260ms ease;
+}
+
+.layout-shell.sidebar-open .sidebar-slot {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 .layout-shell.sidebar-closed .sidebar-slot {
-  transform: translateX(-14px);
+  transform: translateX(-24px);
   opacity: 0;
   pointer-events: none;
 }
@@ -260,6 +270,7 @@ pre {
 
 .side-panel {
   padding: 0.85rem;
+  flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -272,7 +283,7 @@ pre {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  animation: panel-switch-in 220ms ease;
+  animation: panel-switch-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .side-panel-head {
@@ -308,6 +319,8 @@ pre {
 
 .session-item-head {
   align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
 }
 
 .session-main {
@@ -319,6 +332,7 @@ pre {
   cursor: pointer;
   text-align: left;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -343,6 +357,7 @@ pre {
   font-size: 1.2rem;
   line-height: 1;
   min-width: 24px;
+  flex-shrink: 0;
   text-align: center;
   transition: color 0.2s;
 }
@@ -514,6 +529,15 @@ pre {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 220ms ease;
+}
+
+.layout-shell.sidebar-closed .chat-card {
+  transform: translateX(-6px);
+}
+
+.layout-shell.sidebar-open .chat-card {
+  transform: translateX(0);
 }
 
 .section-head {
@@ -539,7 +563,15 @@ pre {
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  animation: panel-switch-in 220ms ease;
+  overflow: hidden;
+  animation: panel-switch-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.agent-tab-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .runtime-command {
@@ -555,10 +587,30 @@ pre {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0.4rem 1rem 7.2rem;
+  margin: 0.35rem 1rem 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(7, 13, 22, 0.42);
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08);
+}
+
+.messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
 }
 
 .message-bubble {
@@ -990,7 +1042,7 @@ pre {
 @media (max-width: 720px) {
   .app-frame {
     width: 100%;
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    padding-bottom: 0;
   }
 
   .hero-panel,
@@ -1003,7 +1055,8 @@ pre {
   }
 
   .messages {
-    padding: 0.35rem 0.7rem 6.8rem;
+    margin: 0.35rem 0.7rem 0.7rem;
+    padding: 0.45rem 0.6rem;
   }
 
   .message-bubble {
@@ -1020,6 +1073,37 @@ pre {
 
   .composer-actions button {
     width: 100%;
+  }
+
+  .top-header {
+    padding: 0.55rem 0.7rem;
+  }
+
+  .header-title h1 {
+    font-size: 1.1rem;
+  }
+
+  .header-controls {
+    align-items: stretch;
+    gap: 0.45rem;
+  }
+
+  .control-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+  }
+
+  .profile-select,
+  .model-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .new-session-button {
+    width: 32px;
+    height: 32px;
+    align-self: flex-start;
   }
 }
 
@@ -1047,6 +1131,7 @@ pre {
 .header-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.8rem;
 }
 
@@ -1086,6 +1171,44 @@ pre {
   color: #f7f7f2;
 }
 
+.new-session-button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7f7f2;
+  font-size: 1.15rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.new-session-button:hover:not(:disabled) {
+  background: rgba(255, 136, 102, 0.24);
+  border-color: rgba(255, 136, 102, 0.7);
+}
+
+.new-session-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .primary-button {
   padding: 0.5rem 1rem;
   border: none;
@@ -1110,7 +1233,7 @@ pre {
 .tab-bar {
   display: flex;
   gap: 0.25rem;
-  padding: 0.35rem 0.7rem;
+  padding: 0rem 0.7rem;
   background: rgba(11, 18, 29, 0.5);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   overflow-x: auto;
@@ -1250,12 +1373,12 @@ pre {
 @keyframes panel-switch-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px) scale(0.994);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -1295,8 +1418,26 @@ pre {
   overflow: auto;
   min-height: 0;
   flex: 1;
-  display: grid;
-  gap: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0.3rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08);
+}
+
+.console-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+.console-output::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.console-output::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
 }
 
 .console-line {

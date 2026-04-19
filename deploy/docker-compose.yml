@@ -11,10 +11,9 @@ services:
     environment:
       PORT: 8787
       DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-codex-cli}
-      DEFAULT_WORKSPACE_PATH: ${DEFAULT_WORKSPACE_PATH:-/host-workspace}
+      DEFAULT_WORKSPACE_PATH: ${WORKSPACE_PATH:-/host-workspace/Multi-Copilot}
       CODEX_CLI_COMMAND: ${CODEX_CLI_COMMAND:-docker exec -i codex-cli-runtime codex}
       CODEX_CUSTOM_API_BASE_URL: ${CODEX_CUSTOM_API_BASE_URL:-http://api-adapter:11434/v1}
-      CODEX_MODEL: ${CODEX_MODEL:-Qwen3.5-9B-Q5_K_M}
       CODEX_PROFILE: ${CODEX_PROFILE:-custom-api}
       CODEX_SANDBOX: ${CODEX_SANDBOX:-workspace-write}
     ports:
@@ -40,9 +39,6 @@ services:
     environment:
       HOME: /home/codex
       CODEX_HOME: /home/codex/.codex
-      CODEX_DEFAULT_MODEL: ${CODEX_DEFAULT_MODEL:-Qwen3.5-9B-Q5_K_M}
-      CODEX_OPENAI_MODEL: ${CODEX_OPENAI_MODEL:-gpt-5-codex}
-      CODEX_CUSTOM_API_MODEL: ${CODEX_CUSTOM_API_MODEL:-Qwen3.5-9B-Q5_K_M}
       CODEX_CUSTOM_API_BASE_URL: ${CODEX_CUSTOM_API_BASE_URL:-http://api-adapter:11434/v1}
       CODEX_CUSTOM_API_KEY_ENV: ${CODEX_CUSTOM_API_KEY_ENV:-CUSTOM_LLM_API_KEY}
       CUSTOM_LLM_API_KEY: ${CUSTOM_LLM_API_KEY:-dummy}
@@ -50,7 +46,7 @@ services:
     volumes:
       - codex-home:/home/codex/.codex
       - ${HOST_WORKSPACE_ROOT:-/home/monitor}:/host-workspace
-    working_dir: /host-workspace
+    working_dir: ${WORKSPACE_PATH:-/host-workspace/Multi-Copilot}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

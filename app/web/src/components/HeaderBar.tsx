@@ -74,12 +74,14 @@ export function HeaderBar({
         </div>
 
         <button
-          className="primary-button"
+          className="new-session-button"
           onClick={onNewSession}
           disabled={snapshot?.session.status === "running"}
-          title="Create new session"
+          title="新建会话"
+          aria-label="新建会话"
         >
-          新建会话
+          <span className="sr-only">新建会话</span>
+          <span aria-hidden="true">+</span>
         </button>
       </div>
     </header>

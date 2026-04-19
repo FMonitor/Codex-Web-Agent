@@ -14,6 +14,23 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+## 统一工作区入口
+
+在 `.env` 里通过单个配置项统一 Agent 对话根路径和文件树根路径：
+
+- `WORKSPACE_PATH=/host-workspace/Multi-Copilot`
+
+该值会同时用于：
+
+- App 的 `DEFAULT_WORKSPACE_PATH`
+- Codex 运行时容器的 `working_dir`
+
+## 模型来源
+
+- deploy 环境变量不再配置模型名。
+- 模型列表仅通过上游接口 `/models` 动态读取。
+- deploy 仅保留 API 地址与密钥相关配置。
+
 ## 默认端口
 
 - App: `8787`
@@ -23,6 +40,6 @@ docker compose up -d --build
 
 默认使用：
 
-- `UPSTREAM_BASE_URL=https://gemma4.lcmonitor.dynv6.net:8002/v1`
+- `UPSTREAM_BASE_URL=http://host.docker.internal:8002/v1`
 
 该地址与你本地转发的 `8002` 配置兼容。

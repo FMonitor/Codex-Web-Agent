@@ -28,9 +28,14 @@ type StreamEntry =
     };
 
 function describeStatus(event: ConsoleEvent): string | null {
+  const message = event.message || event.content || "";
+  if (message.includes("用户消息已接收") || message.includes("开始执行 Codex CLI")) {
+    return null;
+  }
+
   switch (event.type) {
     case "assistant.intent":
-      return event.message || event.content || "Agent 更新了执行意图";
+      return message || "Agent 更新了执行意图";
     case "session.started":
       return event.message || "开始执行";
     case "session.completed":

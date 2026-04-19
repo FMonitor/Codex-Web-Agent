@@ -14,8 +14,6 @@ interface LeftSidebarProps {
   workspaceTreeLoading: boolean;
   onChangeTab: (tab: SidebarTab) => void;
   onSelectSession: (sessionId: string) => void;
-  onRefreshSessions: () => void;
-  onRefreshTree: () => void;
   onSelectFile: (path: string) => void;
   onArchiveSession: (sessionId: string) => void;
   onExportSession: (sessionId: string) => void;
@@ -59,8 +57,6 @@ export function LeftSidebar({
   workspaceTreeLoading,
   onChangeTab,
   onSelectSession,
-  onRefreshSessions,
-  onRefreshTree,
   onSelectFile,
   onArchiveSession,
   onExportSession,
@@ -129,9 +125,6 @@ export function LeftSidebar({
             <>
               <div className="side-panel-head">
                 <strong>Session 列表</strong>
-                <button type="button" className="ghost-button small-button" onClick={onRefreshSessions}>
-                  刷新
-                </button>
               </div>
               <div className="session-list">
                 {sessions.length === 0 ? <p className="muted">暂无 Session</p> : null}
@@ -177,9 +170,6 @@ export function LeftSidebar({
             <>
               <div className="side-panel-head">
                 <strong>工作区文件树</strong>
-                <button type="button" className="ghost-button small-button" onClick={onRefreshTree}>
-                  刷新
-                </button>
               </div>
               <p className="muted">根路径: {workspaceRootLabel}</p>
               {workspaceTreeLoading ? <p className="muted">加载中...</p> : null}

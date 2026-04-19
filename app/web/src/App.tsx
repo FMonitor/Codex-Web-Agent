@@ -43,8 +43,6 @@ export function App() {
     workspaceTree,
     workspaceRootLabel,
     workspaceTreeLoading,
-    refreshSessions,
-    refreshWorkspaceTree,
     selectSession,
     archiveSession,
     exportSession,
@@ -167,6 +165,7 @@ export function App() {
   const isComposerDisabled = false;
   const activeFilePath = tabFilePath(activeTab);
   const activeConsoleId = tabConsoleId(activeTab);
+  const currentModelLabel = snapshot?.session.model || createOptions.model || "Agent";
 
   return (
     <div className="shell">
@@ -201,8 +200,6 @@ export function App() {
               workspaceTreeLoading={workspaceTreeLoading}
               onChangeTab={setSidebarTab}
               onSelectSession={selectSession}
-              onRefreshSessions={refreshSessions}
-              onRefreshTree={refreshWorkspaceTree}
               onSelectFile={handleOpenFileTab}
               onArchiveSession={archiveSession}
               onExportSession={exportSession}
@@ -226,28 +223,27 @@ export function App() {
 
             <div className="tab-panel-viewport" key={activeTab?.id || "agent"}>
               {activeTab?.type === "agent" ? (
-                <>
-                <div className="section-head">
-                  <div>
-                    <h2>聊天与执行状态</h2>
-                    <p>{snapshot?.session.workspacePath || bootstrap?.defaultWorkspacePath || "loading..."}</p>
+                <section className="agent-tab-panel">
+                  <div className="section-head">
+                    <div>
+                      <h2>{currentModelLabel}</h2>
+                    </div>
+                    <div className="row">
+                      {snapshot?.session.status === "running" ? (
+                        <div className="spinner-inline" title="Processing..." />
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="row">
-                    {snapshot?.session.status === "running" ? (
-                      <div className="spinner-inline" title="Processing..." />
-                    ) : null}
-                  </div>
-                </div>
 
-                {error ? <div className="error-banner">{error}</div> : null}
-                <MessageList snapshot={snapshot} />
-                <Composer
-                  onSend={sendMessage}
-                  onStop={stopSession}
-                  isRunning={snapshot?.session.status === "running"}
-                  disabled={isComposerDisabled}
-                />
-                </>
+                  {error ? <div className="error-banner">{error}</div> : null}
+                  <MessageList snapshot={snapshot} />
+                  <Composer
+                    onSend={sendMessage}
+                    onStop={stopSession}
+                    isRunning={snapshot?.session.status === "running"}
+                    disabled={isComposerDisabled}
+                  />
+                </section>
               ) : null}
 
               {activeTab?.type === "file" && activeFilePath ? (

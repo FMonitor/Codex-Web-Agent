@@ -32,21 +32,12 @@ function isCodexInstalled(): boolean {
 export class CodexCliAdapter implements RuntimeAdapter {
   readonly runtimeName = "codex-cli" as const;
   private readonly configuredCommand = process.env.CODEX_CLI_COMMAND?.trim() || "";
-  private readonly defaultModel = process.env.CODEX_MODEL?.trim() || "";
   private readonly defaultProfile = process.env.CODEX_PROFILE?.trim() || "";
   private readonly defaultSandbox = process.env.CODEX_SANDBOX?.trim() || "workspace-write";
   private readonly configuredProfiles = [
     "openai-login",
     "custom-api",
   ].filter((value, index, array) => array.indexOf(value) === index);
-  private readonly configuredModels = [
-    process.env.CODEX_MODEL?.trim(),
-    process.env.CODEX_DEFAULT_MODEL?.trim(),
-    process.env.CODEX_OPENAI_MODEL?.trim(),
-    process.env.CODEX_CUSTOM_API_MODEL?.trim(),
-    "gpt-5-codex",
-    "gpt-5",
-  ].filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
   private readonly sessions = new Map<string, CodexSessionState>();
 
   async createSession(input: CreateSessionInput & { id: string }): Promise<SessionSummary> {
@@ -63,7 +54,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
       agentRole: input.agentRole || "general",
       currentPhase: "idle",
       runtimeProfile: input.runtimeProfile || this.defaultProfile || undefined,
-      model: input.model || this.defaultModel || undefined,
+      model: input.model || undefined,
       sandboxMode: input.sandboxMode || (this.defaultSandbox as SessionSummary["sandboxMode"]),
     };
 
@@ -83,17 +74,6 @@ export class CodexCliAdapter implements RuntimeAdapter {
 
   async sendMessage(sessionId: string, content: string): Promise<void> {
     const state = this.getSessionState(sessionId);
-    this.publish(state, {
-      id: createId("evt"),
-      sessionId,
-      type: "assistant.intent",
-      timestamp: nowIso(),
-      agentId: state.session.agentId,
-      agentRole: state.session.agentRole,
-      phase: "planning",
-      message: `用户消息已接收，准备转发到 Codex CLI: ${content.slice(0, 120)}`,
-    });
-
     if (state.currentProcess) {
       state.queuedMessages.push(content);
       this.publish(state, {
@@ -145,7 +125,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
         available: true,
         notes: "Using configured Codex CLI command. This can point to a local binary or docker exec wrapper.",
         profiles: this.configuredProfiles,
-        models: this.configuredModels,
+        models: [],
       };
     }
 
@@ -159,16 +139,15 @@ export class CodexCliAdapter implements RuntimeAdapter {
         ? "Using the locally installed Codex CLI."
         : "Codex CLI is not installed locally. Configure CODEX_CLI_COMMAND or use the provided container setup.",
       profiles: this.configuredProfiles,
-      models: this.configuredModels,
+      models: [],
     };
   }
 
   async listModels(profile?: string): Promise<string[]> {
     const profileName = profile?.trim() || this.defaultProfile || "custom-api";
-    const fallbackByProfile = this.getConfiguredModelsForProfile(profileName);
     const endpoint = this.getModelsEndpoint(profileName);
     if (!endpoint) {
-      return fallbackByProfile;
+      return [];
     }
 
     try {
@@ -181,7 +160,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
         signal: controller.signal,
       }).finally(() => clearTimeout(timeout));
       if (!response.ok) {
-        return fallbackByProfile;
+        return [];
       }
 
       const payload = (await response.json()) as {
@@ -200,51 +179,15 @@ export class CodexCliAdapter implements RuntimeAdapter {
         (value, index, array) => array.indexOf(value) === index,
       );
 
-      if (dynamic.length > 0) {
-        return dynamic;
-      }
-
-      return [...fallbackByProfile].filter(
-        (value, index, array) => array.indexOf(value) === index,
-      );
+      return dynamic;
     } catch {
-      return fallbackByProfile;
+      return [];
     }
-  }
-
-  private getConfiguredModelsForProfile(profileName: string): string[] {
-    if (profileName === "custom-api") {
-      return [
-        process.env.CODEX_CUSTOM_API_MODEL?.trim(),
-        process.env.CODEX_MODEL?.trim(),
-        process.env.CODEX_DEFAULT_MODEL?.trim(),
-      ].filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
-    }
-
-    if (profileName === "openai-login") {
-      return [
-        process.env.CODEX_OPENAI_MODEL?.trim(),
-        "gpt-5-codex",
-        "gpt-5",
-      ].filter((value, index, array): value is string => Boolean(value) && array.indexOf(value) === index);
-    }
-
-    return this.configuredModels;
   }
 
   private startRun(state: CodexSessionState, prompt: string): void {
     state.stoppedByUser = false;
     const args = this.buildArgs(state, prompt);
-    this.publish(state, {
-      id: createId("evt"),
-      sessionId: state.session.id,
-      type: "assistant.intent",
-      timestamp: nowIso(),
-      agentId: state.session.agentId,
-      agentRole: state.session.agentRole,
-      phase: "running",
-      message: `开始执行 Codex CLI（profile=${state.session.runtimeProfile || "default"}, model=${state.session.model || "default"}）`,
-    });
     const child = this.spawnCommand(args, state.session.workspacePath);
     child.stdin.end();
     state.currentProcess = child;
