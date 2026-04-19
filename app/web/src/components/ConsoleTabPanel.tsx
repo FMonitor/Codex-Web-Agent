@@ -152,6 +152,15 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
     setRunningAction("exec");
     setError("");
     try {
+      if (normalized.toLowerCase() === "clear") {
+        await apiClient.clearConsoleTab(consoleTabId);
+        setHistoryIndex(-1);
+        historyDraftRef.current = "";
+        setCommand("");
+        requestAnimationFrame(() => restoreInputFocus());
+        return;
+      }
+
       await apiClient.execConsoleTab(consoleTabId, normalized);
       setCommandHistory((current) => {
         if (current[current.length - 1] === normalized) {

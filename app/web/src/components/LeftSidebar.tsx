@@ -10,7 +10,6 @@ interface LeftSidebarProps {
   sessions: SessionSummary[];
   activeSessionId: string | null;
   workspaceTree: WorkspaceTreeNode | null;
-  workspaceRootLabel: string;
   workspaceTreeLoading: boolean;
   onChangeTab: (tab: SidebarTab) => void;
   onSelectSession: (sessionId: string) => void;
@@ -53,7 +52,6 @@ export function LeftSidebar({
   sessions,
   activeSessionId,
   workspaceTree,
-  workspaceRootLabel,
   workspaceTreeLoading,
   onChangeTab,
   onSelectSession,
@@ -190,7 +188,6 @@ export function LeftSidebar({
               <div className="side-panel-head">
                 <strong>工作区文件树</strong>
               </div>
-              <p className="muted">根路径: {workspaceRootLabel}</p>
               {workspaceTreeLoading ? <p className="muted">加载中...</p> : null}
               {workspaceTree ? (
                 <ul className="tree-list">

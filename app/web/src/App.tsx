@@ -7,6 +7,7 @@ import { HeaderBar } from "./components/HeaderBar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { MessageList } from "./components/MessageList";
 import { TabBar, type TabItem } from "./components/TabBar";
+import { TodoStrip } from "./components/TodoStrip";
 import { useConsoleSession } from "./hooks/useConsoleSession";
 
 function tabFilePath(tab: TabItem | undefined): string | null {
@@ -41,7 +42,6 @@ export function App() {
     sidebarTab,
     setSidebarTab,
     workspaceTree,
-    workspaceRootLabel,
     workspaceTreeLoading,
     selectSession,
     archiveSession,
@@ -200,7 +200,6 @@ export function App() {
               sessions={sessions}
               activeSessionId={activeSessionId}
               workspaceTree={workspaceTree}
-              workspaceRootLabel={workspaceRootLabel}
               workspaceTreeLoading={workspaceTreeLoading}
               onChangeTab={setSidebarTab}
               onSelectSession={selectSession}
@@ -239,6 +238,7 @@ export function App() {
 
                   {error ? <div className="error-banner">{error}</div> : null}
                   <MessageList snapshot={snapshot} />
+                  <TodoStrip snapshot={snapshot} />
                   <Composer
                     onSend={sendMessage}
                     onStop={stopSession}

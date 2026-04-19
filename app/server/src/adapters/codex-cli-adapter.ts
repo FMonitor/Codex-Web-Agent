@@ -18,7 +18,10 @@ interface CodexSessionState {
 }
 
 function isBenignStderrLine(line: string): boolean {
-  return /reading additional input from stdin/i.test(line);
+  return (
+    /reading additional input from stdin/i.test(line) ||
+    /could not update PATH: No such file or directory/i.test(line)
+  );
 }
 
 function quoteShellArg(value: string): string {

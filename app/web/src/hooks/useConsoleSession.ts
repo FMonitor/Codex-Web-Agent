@@ -24,9 +24,70 @@ interface OpenedFile {
   content: string;
 }
 
+const LOCAL_MESSAGE_PREFIX = "local_";
+const MESSAGE_TIME_TOLERANCE_MS = 20_000;
+
+function isSameOptimisticUserMessage(serverMessage: ChatMessage, localMessage: ChatMessage): boolean {
+  if (serverMessage.role !== "user" || localMessage.role !== "user") {
+    return false;
+  }
+  if (serverMessage.content !== localMessage.content) {
+    return false;
+  }
+
+  const serverTime = Date.parse(serverMessage.createdAt);
+  const localTime = Date.parse(localMessage.createdAt);
+  if (!Number.isFinite(serverTime) || !Number.isFinite(localTime)) {
+    return true;
+  }
+
+  return Math.abs(serverTime - localTime) <= MESSAGE_TIME_TOLERANCE_MS;
+}
+
+function mergeSnapshotMessages(
+  currentMessages: ChatMessage[],
+  incomingMessages: ChatMessage[],
+): ChatMessage[] {
+  const optimisticMessages = currentMessages.filter(
+    (message) => message.role === "user" && message.id.startsWith(LOCAL_MESSAGE_PREFIX),
+  );
+  if (optimisticMessages.length === 0) {
+    return incomingMessages;
+  }
+
+  const pending = optimisticMessages.filter((localMessage) =>
+    !incomingMessages.some(
+      (serverMessage) =>
+        serverMessage.id === localMessage.id ||
+        isSameOptimisticUserMessage(serverMessage, localMessage),
+    ),
+  );
+  if (pending.length === 0) {
+    return incomingMessages;
+  }
+
+  return [...incomingMessages, ...pending].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 function applyEvent(snapshot: SessionSnapshot, event: ConsoleEvent): SessionSnapshot {
   if (event.type === "session.snapshot" && event.snapshot) {
-    return event.snapshot;
+    const mergedMessages = mergeSnapshotMessages(snapshot.messages, event.snapshot.messages);
+    if (mergedMessages === event.snapshot.messages) {
+      return event.snapshot;
+    }
+
+    const latestUserMessage = [...mergedMessages]
+      .reverse()
+      .find((message) => message.role === "user")?.content;
+
+    return {
+      ...event.snapshot,
+      session: {
+        ...event.snapshot.session,
+        lastUserMessage: latestUserMessage || event.snapshot.session.lastUserMessage,
+      },
+      messages: mergedMessages,
+    };
   }
 
   const next: SessionSnapshot = {

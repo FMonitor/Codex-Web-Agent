@@ -140,15 +140,26 @@ export class SessionService {
     return normalized.slice(0, 24);
   }
 
+  private buildLanguageGuidance(latestUserContent: string): string {
+    if (/[\u4e00-\u9fff]/.test(latestUserContent)) {
+      return "必须使用中文回复，除非用户明确要求其他语言。";
+    }
+    return "Use the same language as the latest user message unless the user explicitly asks otherwise.";
+  }
+
   private buildCodexPromptWithContext(snapshot: SessionSnapshot, latestUserContent: string): string {
     const recent = snapshot.messages.slice(-12);
-    if (recent.length <= 1) {
-      return latestUserContent;
-    }
 
     const lines: string[] = [
-      "你正在一个持续会话中执行任务。以下是最近的对话上下文（按时间顺序）：",
+      "你正在一个持续会话中执行任务。",
+      this.buildLanguageGuidance(latestUserContent),
+      "当你创建或更新执行计划/Todo时，请额外给出一条简短进展说明：已完成什么、下一步做什么。",
+      "不要逐项罗列完整 Todo 列表或状态计数，除非用户明确要求。",
     ];
+
+    if (recent.length > 1) {
+      lines.push("以下是最近的对话上下文（按时间顺序）：");
+    }
 
     for (const message of recent) {
       const role = message.role === "user" ? "用户" : message.role === "assistant" ? "助手" : "系统";
@@ -159,6 +170,7 @@ export class SessionService {
       lines.push(`[${role}] ${content}`);
     }
 
+    lines.push(`最后一条用户消息：${latestUserContent.replace(/\s+/g, " ").trim()}`);
     lines.push("请基于以上上下文继续，并重点回应最后一条用户消息。不要重复输出上下文原文。");
     return lines.join("\n");
   }

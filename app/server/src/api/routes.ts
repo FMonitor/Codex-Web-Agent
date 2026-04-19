@@ -499,6 +499,15 @@ export function createApiRouter(
     }
   });
 
+  router.post("/console/tabs/:tabId/clear", (req, res, next) => {
+    try {
+      consoleTabs.clear(req.params.tabId);
+      res.json({ accepted: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.delete("/console/tabs/:tabId", (req, res, next) => {
     try {
       consoleTabs.close(req.params.tabId);

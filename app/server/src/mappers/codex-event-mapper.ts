@@ -19,6 +19,7 @@ interface CodexItem {
   exit_code?: number;
   stdout?: string;
   stderr?: string;
+  aggregated_output?: string;
   path?: string;
   patch?: string;
   diff?: string;
@@ -28,6 +29,7 @@ interface CodexItem {
   query?: string;
   args?: unknown;
   steps?: Array<{ description?: string; status?: string }>;
+  items?: Array<{ text?: string; completed?: boolean }>;
   [key: string]: unknown;
 }
 
@@ -93,9 +95,55 @@ function fileChangeType(value?: string): FileChange["changeType"] {
   }
 }
 
+function trimSummaryText(value: string, maxLength = 360): string {
+  const normalized = value.replace(/\r/g, "").trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+function buildToolOutputSummary(item: CodexItem): string | undefined {
+  const parts: string[] = [];
+  let hasExplicitStreamOutput = false;
+
+  if (typeof item.exit_code === "number") {
+    parts.push(`exit code ${item.exit_code}`);
+  }
+
+  if (typeof item.stdout === "string") {
+    const stdout = trimSummaryText(item.stdout);
+    if (stdout) {
+      parts.push(`stdout: ${stdout}`);
+      hasExplicitStreamOutput = true;
+    }
+  }
+
+  if (typeof item.stderr === "string") {
+    const stderr = trimSummaryText(item.stderr);
+    if (stderr) {
+      parts.push(`stderr: ${stderr}`);
+      hasExplicitStreamOutput = true;
+    }
+  }
+
+  if (!hasExplicitStreamOutput && typeof item.aggregated_output === "string") {
+    const aggregated = trimSummaryText(item.aggregated_output);
+    if (aggregated) {
+      parts.push(`output: ${aggregated}`);
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
 export class CodexEventMapper {
   private readonly messageTextByItemId = new Map<string, string>();
   private readonly threadEventsSeen = new Set<string>();
+  private readonly syntheticItemIds = new Map<string, string>();
   private turnSequence = 0;
 
   constructor(private readonly session: SessionSummary) {}
@@ -132,6 +180,7 @@ export class CodexEventMapper {
     if (raw.type === "turn.started") {
       this.turnSequence += 1;
       this.messageTextByItemId.clear();
+      this.syntheticItemIds.clear();
       return [
         {
           ...base("session.started", "planning"),
@@ -180,7 +229,7 @@ export class CodexEventMapper {
     }
 
     const item = raw.item;
-    const itemId = item.id || createId("item");
+    const itemId = this.resolveItemId(raw, item);
     const phase = phaseFromItemType(item.type);
     const events: ConsoleEvent[] = [];
 
@@ -243,6 +292,24 @@ export class CodexEventMapper {
       return events;
     }
 
+    if (item.type === "todo_list") {
+      const actionMessage =
+        raw.type === "item.started"
+          ? "执行计划已创建"
+          : raw.type === "item.updated"
+            ? "执行计划已更新"
+            : raw.type === "item.completed"
+              ? "执行计划已完成"
+              : "执行计划已变更";
+
+      events.push({
+        ...base("assistant.intent", "planning"),
+        message: actionMessage,
+      });
+
+      return events;
+    }
+
     if (item.type === "file_change" || item.type === "apply_patch") {
       if (raw.type === "item.completed" || raw.type === "item.updated") {
         events.push({
@@ -292,9 +359,12 @@ export class CodexEventMapper {
           (item.command as string) ||
           (item.query as string) ||
           (typeof item.args === "string" ? item.args : undefined),
-        outputSummary:
-          typeof item.exit_code === "number" ? `exit code ${item.exit_code}` : undefined,
-        errorMessage: raw.type === "item.failed" ? "Codex reported this tool call as failed" : undefined,
+        outputSummary: buildToolOutputSummary(item),
+        errorMessage:
+          raw.type === "item.failed"
+            ? trimSummaryText(typeof item.stderr === "string" ? item.stderr : "") ||
+              "Codex reported this tool call as failed"
+            : undefined,
         agentId: this.session.agentId,
         agentRole: this.session.agentRole,
       };
@@ -348,8 +418,36 @@ export class CodexEventMapper {
 
     events.push({
       ...base("assistant.intent", phase),
-      message: item.summary || item.title || `Codex item event: ${item.type || "unknown"}`,
+      message:
+        item.summary ||
+        item.title ||
+        `Codex item ${raw.type.replace("item.", "")}: ${item.type || "unknown"}`,
     });
     return events;
+  }
+
+  private resolveItemId(raw: CodexRawEvent, item: CodexItem): string {
+    if (typeof item.id === "string" && item.id.trim()) {
+      return item.id.trim();
+    }
+
+    const turnKey = raw.turn_id || `turn_${this.turnSequence}`;
+    const signature = [
+      turnKey,
+      item.type || "unknown",
+      typeof item.command === "string" ? item.command : "",
+      typeof item.query === "string" ? item.query : "",
+      typeof item.title === "string" ? item.title : "",
+      typeof item.path === "string" ? item.path : "",
+    ].join("|");
+
+    const existing = this.syntheticItemIds.get(signature);
+    if (existing) {
+      return existing;
+    }
+
+    const generated = createId("item");
+    this.syntheticItemIds.set(signature, generated);
+    return generated;
   }
 }

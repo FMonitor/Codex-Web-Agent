@@ -158,6 +158,16 @@ export class ConsoleTabManager {
     state.process.kill("SIGTERM");
   }
 
+  clear(tabId: string): void {
+    const state = this.getState(tabId);
+    state.entries = [];
+    state.updatedAt = nowIso();
+    this.publish(state, {
+      type: "snapshot",
+      snapshot: this.toSnapshot(state),
+    });
+  }
+
   close(tabId: string): void {
     const state = this.tabs.get(tabId);
     if (!state) {

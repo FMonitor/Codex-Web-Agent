@@ -1,6 +1,6 @@
 import type { ConsoleEvent, SessionSnapshot, ToolExecution, ToolStatus } from "@copilot-console/shared";
 import { Check, ChevronDown, Loader2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from "react";
 
 interface MessageListProps {
   snapshot: SessionSnapshot | null;
@@ -10,6 +10,7 @@ type StreamEntry =
   | {
       id: string;
       kind: "message";
+      messageId: string;
       timestamp: string;
       role: "user" | "assistant" | "system";
       content: string;
@@ -121,6 +122,11 @@ function toLogPreview(content: string): string {
 
 export function MessageList({ snapshot }: MessageListProps) {
   const [openLogs, setOpenLogs] = useState<Record<string, boolean>>({});
+  const [typedAssistantById, setTypedAssistantById] = useState<Record<string, string>>({});
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const typingTimersRef = useRef<Record<string, number>>({});
+  const typedAssistantRef = useRef<Record<string, string>>({});
+  const sessionRef = useRef<string | null>(null);
 
   const entries = useMemo<StreamEntry[]>(() => {
     if (!snapshot) {
@@ -130,6 +136,7 @@ export function MessageList({ snapshot }: MessageListProps) {
     const messageEntries: StreamEntry[] = snapshot.messages.map((message) => ({
       id: `msg_${message.id}`,
       kind: "message",
+      messageId: message.id,
       timestamp: message.createdAt,
       role: message.role,
       content: message.content,
@@ -207,8 +214,146 @@ export function MessageList({ snapshot }: MessageListProps) {
     }));
   };
 
+  useEffect(() => {
+    typedAssistantRef.current = typedAssistantById;
+  }, [typedAssistantById]);
+
+  useEffect(() => {
+    const sessionId = snapshot?.session.id || null;
+    if (sessionRef.current === sessionId) {
+      return;
+    }
+
+    for (const timeoutId of Object.values(typingTimersRef.current)) {
+      window.clearTimeout(timeoutId);
+    }
+    typingTimersRef.current = {};
+    typedAssistantRef.current = {};
+    setTypedAssistantById({});
+    sessionRef.current = sessionId;
+  }, [snapshot?.session.id]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+
+    const assistantMessages = snapshot.messages.filter((message) => message.role === "assistant");
+    const lastAssistantId = assistantMessages[assistantMessages.length - 1]?.id;
+
+    setTypedAssistantById((current) => {
+      const next: Record<string, string> = {};
+      const hadAssistantState = Object.keys(current).length > 0;
+      for (const message of assistantMessages) {
+        const existing = current[message.id];
+        if (existing === undefined) {
+          const shouldAnimate =
+            message.id === lastAssistantId && (snapshot.session.status === "running" || hadAssistantState);
+          next[message.id] = shouldAnimate ? "" : message.content;
+          continue;
+        }
+
+        if (existing.length > message.content.length || !message.content.startsWith(existing)) {
+          next[message.id] = message.content;
+          continue;
+        }
+
+        next[message.id] = existing;
+      }
+      return next;
+    });
+  }, [snapshot]);
+
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+
+    const assistantMessages = snapshot.messages.filter((message) => message.role === "assistant");
+    const assistantIds = new Set(assistantMessages.map((message) => message.id));
+
+    for (const [messageId, timeoutId] of Object.entries(typingTimersRef.current)) {
+      if (!assistantIds.has(messageId)) {
+        window.clearTimeout(timeoutId);
+        delete typingTimersRef.current[messageId];
+      }
+    }
+
+    for (const message of assistantMessages) {
+      const typed = typedAssistantById[message.id] || "";
+      const target = message.content;
+
+      if (typed.length >= target.length) {
+        const timeoutId = typingTimersRef.current[message.id];
+        if (timeoutId) {
+          window.clearTimeout(timeoutId);
+          delete typingTimersRef.current[message.id];
+        }
+        continue;
+      }
+
+      if (typingTimersRef.current[message.id]) {
+        continue;
+      }
+
+      const tick = () => {
+        const currentValue = typedAssistantRef.current[message.id] || "";
+        if (currentValue.length >= target.length) {
+          delete typingTimersRef.current[message.id];
+          return;
+        }
+
+        const nextChunk = Math.max(1, Math.ceil((target.length - currentValue.length) / 20));
+        const nextLength = Math.min(target.length, currentValue.length + nextChunk);
+        const nextValue = target.slice(0, nextLength);
+
+        typedAssistantRef.current = {
+          ...typedAssistantRef.current,
+          [message.id]: nextValue,
+        };
+
+        setTypedAssistantById((current) => {
+          if (current[message.id] === nextValue) {
+            return current;
+          }
+          return {
+            ...current,
+            [message.id]: nextValue,
+          };
+        });
+
+        if (nextLength >= target.length) {
+          delete typingTimersRef.current[message.id];
+          return;
+        }
+
+        typingTimersRef.current[message.id] = window.setTimeout(tick, 18);
+      };
+
+      typingTimersRef.current[message.id] = window.setTimeout(tick, 18);
+    }
+  }, [snapshot, typedAssistantById]);
+
+  useEffect(() => () => {
+    for (const timeoutId of Object.values(typingTimersRef.current)) {
+      window.clearTimeout(timeoutId);
+    }
+    typingTimersRef.current = {};
+  }, []);
+
+  const stopWheelPropagation = (event: ReactWheelEvent<HTMLElement>) => {
+    event.stopPropagation();
+  };
+
+  useEffect(() => {
+    if (!listRef.current) {
+      return;
+    }
+    listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [entries.length, typedAssistantById]);
+
   return (
-    <div className="messages">
+    <div className="messages" ref={listRef}>
       {entries.length === 0 ? (
         <div className="empty-state">
           <h3>会话已创建</h3>
@@ -230,7 +375,11 @@ export function MessageList({ snapshot }: MessageListProps) {
                   })}
                 </time>
               </div>
-              <div className="message-content">{entry.content}</div>
+              <div className="message-content">
+                {entry.role === "assistant"
+                  ? typedAssistantById[entry.messageId] || entry.content
+                  : entry.content}
+              </div>
             </article>
           );
         }
@@ -238,7 +387,9 @@ export function MessageList({ snapshot }: MessageListProps) {
         if (entry.kind === "status") {
           return (
             <div key={entry.id} className="status-line">
-              <span className="status-dot" />
+              <span className="status-dot">
+                <span className="status-dot-core" />
+              </span>
               <span>{entry.text}</span>
             </div>
           );
@@ -255,7 +406,11 @@ export function MessageList({ snapshot }: MessageListProps) {
                 </span>
                 {hasExtraDetail ? <ChevronDown className="tool-line-caret" size={14} /> : null}
               </summary>
-              {hasExtraDetail ? <pre className="tool-line-detail">{entry.detail}</pre> : null}
+              {hasExtraDetail ? (
+                <pre className="tool-line-detail" onWheelCapture={stopWheelPropagation}>
+                  {entry.detail}
+                </pre>
+              ) : null}
             </details>
           );
         }
@@ -276,7 +431,10 @@ export function MessageList({ snapshot }: MessageListProps) {
                 {isOpen ? "收起" : "展开"}
               </button>
             </div>
-            <pre className={`log-content ${isOpen ? "expanded" : "collapsed"}`}>
+            <pre
+              className={`log-content ${isOpen ? "expanded" : "collapsed"}`}
+              onWheelCapture={isOpen ? stopWheelPropagation : undefined}
+            >
               {isOpen ? entry.content : toLogPreview(entry.content)}
             </pre>
           </article>

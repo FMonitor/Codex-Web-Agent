@@ -210,6 +210,11 @@ export const apiClient = {
       method: "POST",
     }).then((response) => readJson<{ accepted: boolean }>(response));
   },
+  clearConsoleTab(tabId: string): Promise<{ accepted: boolean }> {
+    return fetch(`/api/console/tabs/${tabId}/clear`, {
+      method: "POST",
+    }).then((response) => readJson<{ accepted: boolean }>(response));
+  },
   deleteConsoleTab(tabId: string): Promise<void> {
     return fetch(`/api/console/tabs/${tabId}`, {
       method: "DELETE",
