@@ -556,8 +556,16 @@ pre {
 .section-head {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   padding: 1rem 1.1rem 0.4rem;
+}
+
+.section-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
 }
 
 .section-head h2 {
@@ -601,10 +609,10 @@ pre {
   min-height: 0;
   overflow: auto;
   margin: 0.35rem 1rem 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  background: rgba(7, 13, 22, 0.42);
+  padding: 0.3rem 0.35rem;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
@@ -631,6 +639,13 @@ pre {
   padding: 0.95rem 1rem;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.message-bubble,
+.status-line,
+.tool-line,
+.log-bubble {
+  flex-shrink: 0;
 }
 
 .message-user {
@@ -663,6 +678,96 @@ pre {
   height: 0.5rem;
   border-radius: 50%;
   background: rgba(255, 190, 111, 0.9);
+}
+
+.tool-line {
+  width: min(100%, 48rem);
+  max-width: 100%;
+  align-self: flex-start;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.tool-line-summary {
+  list-style: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  cursor: pointer;
+}
+
+.tool-line-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-line-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(247, 247, 242, 0.9);
+  font-size: 0.86rem;
+}
+
+.tool-line-caret {
+  opacity: 0.75;
+  transition: transform 180ms ease;
+}
+
+.tool-line[open] .tool-line-caret {
+  transform: rotate(180deg);
+}
+
+.tool-line-detail {
+  margin: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.15);
+  padding: 0.6rem 0.65rem;
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(247, 247, 242, 0.82);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.tool-status-icon {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: rgba(247, 247, 242, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tool-status-icon.running {
+  border-color: rgba(255, 190, 111, 0.85);
+  color: rgba(255, 217, 153, 0.98);
+  background: rgba(255, 190, 111, 0.12);
+}
+
+.tool-status-icon.completed {
+  border-color: rgba(56, 186, 124, 0.85);
+  color: #89f5b0;
+  background: rgba(56, 186, 124, 0.16);
+}
+
+.tool-status-icon.failed {
+  border-color: rgba(255, 104, 104, 0.86);
+  color: #ffc0b7;
+  background: rgba(255, 104, 104, 0.17);
+}
+
+.tool-icon-spin {
+  animation: spin 700ms linear infinite;
 }
 
 .log-bubble {
@@ -1092,7 +1197,7 @@ pre {
 
   .messages {
     margin: 0.35rem 0.7rem 0.7rem;
-    padding: 0.45rem 0.6rem;
+    padding: 0.22rem 0.15rem;
   }
 
   .message-bubble {
@@ -1453,10 +1558,10 @@ pre {
 }
 
 .console-output {
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  background: rgba(7, 13, 22, 0.42);
-  padding: 0.65rem 0.85rem;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  padding: 0.25rem 0.35rem;
   overflow: auto;
   min-height: 0;
   flex: 1;
@@ -1486,7 +1591,7 @@ pre {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.6rem;
-  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-family: "Consolas", "IBM Plex Mono", "SFMono-Regular", monospace;
   font-size: 0.84rem;
   line-height: 1.45;
 }
@@ -1542,6 +1647,7 @@ pre {
   background: rgba(14, 24, 40, 0.92);
   color: #fff;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  font-family: "Consolas", "IBM Plex Mono", "SFMono-Regular", monospace;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08);
 }
@@ -1578,14 +1684,3 @@ pre {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .layout-shell,
-  .sidebar-slot,
-  .sidebar-scrim,
-  .tab-panel-viewport,
-  .side-panel-viewport,
-  .tab-sidebar-toggle {
-    transition: none !important;
-    animation: none !important;
-  }
-}

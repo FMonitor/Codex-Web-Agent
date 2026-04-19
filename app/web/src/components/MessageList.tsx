@@ -1,4 +1,5 @@
-import type { ConsoleEvent, SessionSnapshot } from "@copilot-console/shared";
+import type { ConsoleEvent, SessionSnapshot, ToolExecution, ToolStatus } from "@copilot-console/shared";
+import { Check, ChevronDown, Loader2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 interface MessageListProps {
@@ -21,11 +22,23 @@ type StreamEntry =
     }
   | {
       id: string;
+      kind: "tool";
+      timestamp: string;
+      status: ToolStatus;
+      summary: string;
+      detail: string;
+    }
+  | {
+      id: string;
       kind: "log";
       timestamp: string;
       source: "stdout" | "stderr";
       content: string;
     };
+
+function normalizeSingleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
 
 function describeStatus(event: ConsoleEvent): string | null {
   const message = event.message || event.content || "";
@@ -36,26 +49,66 @@ function describeStatus(event: ConsoleEvent): string | null {
   switch (event.type) {
     case "assistant.intent":
       return message || "Agent 更新了执行意图";
-    case "session.started":
-      return event.message || "开始执行";
-    case "session.completed":
-      return event.message || "执行完成";
-    case "session.failed":
-      return event.message || "执行失败";
-    case "session.stopped":
-      return event.message || "已停止执行";
-    case "tool.execution_start":
-    case "tool.execution_progress":
-    case "tool.execution_complete":
-    case "tool.execution_failed": {
-      const status = event.toolCall?.status || "running";
-      return `工具 ${event.toolCall?.name || "unknown"}: ${status} - ${event.toolCall?.summary || ""}`;
-    }
     case "file.changed":
       return `文件 ${event.fileChange?.path || "unknown"}: ${event.fileChange?.summary || "已变更"}`;
     default:
       return null;
   }
+}
+
+function buildToolSummary(tool: ToolExecution): string {
+  const summary = normalizeSingleLine(tool.summary || "");
+  if (summary) {
+    return summary;
+  }
+  return normalizeSingleLine(tool.name || "tool");
+}
+
+function buildToolDetail(tool: ToolExecution): string {
+  const parts: string[] = [];
+  if (tool.inputSummary?.trim()) {
+    parts.push(`输入: ${tool.inputSummary.trim()}`);
+  }
+  if (tool.outputSummary?.trim()) {
+    parts.push(`输出: ${tool.outputSummary.trim()}`);
+  }
+  if (tool.errorMessage?.trim()) {
+    parts.push(`错误: ${tool.errorMessage.trim()}`);
+  }
+
+  if (parts.length === 0) {
+    return buildToolSummary(tool);
+  }
+
+  return parts.join("\n");
+}
+
+function ToolStateIcon({ status }: { status: ToolStatus }) {
+  if (status === "running" || status === "pending") {
+    return (
+      <span className="tool-status-icon running" aria-label="running">
+        <Loader2 className="tool-icon-spin" size={12} />
+      </span>
+    );
+  }
+
+  if (status === "completed") {
+    return (
+      <span className="tool-status-icon completed" aria-label="completed">
+        <Check size={12} />
+      </span>
+    );
+  }
+
+  if (status === "failed" || status === "cancelled") {
+    return (
+      <span className="tool-status-icon failed" aria-label="failed">
+        <X size={12} />
+      </span>
+    );
+  }
+
+  return <span className="tool-status-icon" aria-label={status} />;
 }
 
 function toLogPreview(content: string): string {
@@ -96,6 +149,15 @@ export function MessageList({ snapshot }: MessageListProps) {
       return acc;
     }, []);
 
+    const toolEntries: StreamEntry[] = snapshot.tools.map((tool) => ({
+      id: `tool_${tool.id}`,
+      kind: "tool",
+      timestamp: tool.endedAt || tool.startedAt,
+      status: tool.status,
+      summary: buildToolSummary(tool),
+      detail: buildToolDetail(tool),
+    }));
+
     const logEntries: StreamEntry[] = snapshot.logs.map((log) => ({
       id: `log_${log.id}`,
       kind: "log",
@@ -104,9 +166,19 @@ export function MessageList({ snapshot }: MessageListProps) {
       content: log.content,
     }));
 
-    const ordered = [...messageEntries, ...statusEntries, ...logEntries].sort((a, b) =>
-      a.timestamp.localeCompare(b.timestamp),
-    );
+    const kindOrder: Record<StreamEntry["kind"], number> = {
+      message: 0,
+      status: 1,
+      tool: 2,
+      log: 3,
+    };
+    const ordered = [...messageEntries, ...statusEntries, ...toolEntries, ...logEntries].sort((a, b) => {
+      const delta = a.timestamp.localeCompare(b.timestamp);
+      if (delta !== 0) {
+        return delta;
+      }
+      return kindOrder[a.kind] - kindOrder[b.kind];
+    });
 
     const merged: StreamEntry[] = [];
     for (const entry of ordered) {
@@ -169,6 +241,22 @@ export function MessageList({ snapshot }: MessageListProps) {
               <span className="status-dot" />
               <span>{entry.text}</span>
             </div>
+          );
+        }
+
+        if (entry.kind === "tool") {
+          const hasExtraDetail = normalizeSingleLine(entry.detail) !== normalizeSingleLine(entry.summary);
+          return (
+            <details key={entry.id} className={`tool-line tool-${entry.status}`}>
+              <summary className="tool-line-summary">
+                <ToolStateIcon status={entry.status} />
+                <span className="tool-line-text" title={entry.summary}>
+                  {entry.summary}
+                </span>
+                {hasExtraDetail ? <ChevronDown className="tool-line-caret" size={14} /> : null}
+              </summary>
+              {hasExtraDetail ? <pre className="tool-line-detail">{entry.detail}</pre> : null}
+            </details>
           );
         }
 

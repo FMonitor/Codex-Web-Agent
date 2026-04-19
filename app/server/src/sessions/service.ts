@@ -53,7 +53,13 @@ export class SessionService {
 
   async sendMessage(sessionId: string, content: string): Promise<void> {
     this.store.appendUserMessage(sessionId, content);
-    await this.getAdapterForSession(sessionId).sendMessage(sessionId, content);
+    const adapter = this.getAdapterForSession(sessionId);
+
+    const prompt = adapter.runtimeName === "codex-cli"
+      ? this.buildCodexPromptWithContext(this.store.getSnapshot(sessionId), content)
+      : content;
+
+    await adapter.sendMessage(sessionId, prompt);
   }
 
   async generateSessionTitle(sessionId: string, content: string): Promise<SessionSummary> {
@@ -132,6 +138,29 @@ export class SessionService {
       return "新会话";
     }
     return normalized.slice(0, 24);
+  }
+
+  private buildCodexPromptWithContext(snapshot: SessionSnapshot, latestUserContent: string): string {
+    const recent = snapshot.messages.slice(-12);
+    if (recent.length <= 1) {
+      return latestUserContent;
+    }
+
+    const lines: string[] = [
+      "你正在一个持续会话中执行任务。以下是最近的对话上下文（按时间顺序）：",
+    ];
+
+    for (const message of recent) {
+      const role = message.role === "user" ? "用户" : message.role === "assistant" ? "助手" : "系统";
+      const content = message.content.replace(/\s+/g, " ").trim().slice(0, 1600);
+      if (!content) {
+        continue;
+      }
+      lines.push(`[${role}] ${content}`);
+    }
+
+    lines.push("请基于以上上下文继续，并重点回应最后一条用户消息。不要重复输出上下文原文。");
+    return lines.join("\n");
   }
 
   private getAdapterForSession(sessionId: string): RuntimeAdapter {

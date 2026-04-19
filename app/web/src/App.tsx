@@ -162,10 +162,14 @@ export function App() {
     }
   };
 
-  const isComposerDisabled = false;
+  const selectedModel = (createOptions.model || snapshot?.session.model || "").trim();
+  const isComposerDisabled = !selectedModel;
+  const composerPlaceholder = isComposerDisabled
+    ? "请先选择模型"
+    : "输入任务，例如：请分析 auth 模块，并修复登录逻辑，再运行相关测试";
   const activeFilePath = tabFilePath(activeTab);
   const activeConsoleId = tabConsoleId(activeTab);
-  const currentModelLabel = snapshot?.session.model || createOptions.model || "Agent";
+  const currentModelLabel = selectedModel || "Agent";
 
   return (
     <div className="shell">
@@ -225,12 +229,10 @@ export function App() {
               {activeTab?.type === "agent" ? (
                 <section className="agent-tab-panel">
                   <div className="section-head">
-                    <div>
+                    <div className="section-title-row">
                       <h2>{currentModelLabel}</h2>
-                    </div>
-                    <div className="row">
                       {snapshot?.session.status === "running" ? (
-                        <div className="spinner-inline" title="Processing..." />
+                        <div className="spinner-inline" title="Processing..." aria-label="Processing" />
                       ) : null}
                     </div>
                   </div>
@@ -242,6 +244,7 @@ export function App() {
                     onStop={stopSession}
                     isRunning={snapshot?.session.status === "running"}
                     disabled={isComposerDisabled}
+                    placeholder={composerPlaceholder}
                   />
                 </section>
               ) : null}

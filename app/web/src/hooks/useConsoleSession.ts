@@ -565,29 +565,27 @@ export function useConsoleSession() {
         const newSession = await createSession();
         if (newSession) {
           setDraftSessionRequested(false);
-          // Send message to newly created session
+          const messageTimestamp = new Date().toISOString();
           const optimisticMessage: ChatMessage = {
             id: `local_${Date.now()}`,
             sessionId: newSession.session.id,
             role: "user",
             content,
-            createdAt: new Date().toISOString(),
+            createdAt: messageTimestamp,
             agentId: newSession.session.agentId,
             agentRole: newSession.session.agentRole,
           };
-          setSnapshot((current) =>
-            current
-              ? {
-                  ...current,
-                  session: {
-                    ...current.session,
-                    lastUserMessage: content,
-                    updatedAt: optimisticMessage.createdAt,
-                  },
-                  messages: [...current.messages, optimisticMessage],
-                }
-              : current,
-          );
+
+          setSnapshot({
+            ...newSession,
+            session: {
+              ...newSession.session,
+              lastUserMessage: content,
+              updatedAt: messageTimestamp,
+            },
+            messages: [...newSession.messages, optimisticMessage],
+          });
+
           await apiClient.sendMessage(newSession.session.id, { content });
 
           void apiClient

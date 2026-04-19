@@ -3,11 +3,12 @@ import { useState } from "react";
 interface ComposerProps {
   disabled?: boolean;
   isRunning?: boolean;
+  placeholder?: string;
   onSend: (content: string) => Promise<void>;
   onStop: () => Promise<void>;
 }
 
-export function Composer({ disabled, isRunning, onSend, onStop }: ComposerProps) {
+export function Composer({ disabled, isRunning, placeholder, onSend, onStop }: ComposerProps) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -42,7 +43,7 @@ export function Composer({ disabled, isRunning, onSend, onStop }: ComposerProps)
               void submitCurrent();
             }
           }}
-          placeholder="输入任务，例如：请分析 auth 模块，并修复登录逻辑，再运行相关测试"
+          placeholder={placeholder || "输入任务，例如：请分析 auth 模块，并修复登录逻辑，再运行相关测试"}
           rows={3}
           disabled={disabled || submitting}
         />

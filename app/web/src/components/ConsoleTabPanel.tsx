@@ -11,6 +11,10 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
   const [error, setError] = useState("");
   const [runningAction, setRunningAction] = useState<"idle" | "exec" | "stop">("idle");
   const outputRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const historyDraftRef = useRef("");
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +94,55 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
 
   const isRunning = snapshot?.status === "running";
 
+  const restoreInputFocus = () => {
+    if (!textareaRef.current) {
+      return;
+    }
+    textareaRef.current.focus();
+    const caret = textareaRef.current.value.length;
+    textareaRef.current.setSelectionRange(caret, caret);
+  };
+
+  const navigateHistory = (direction: "up" | "down"): boolean => {
+    if (commandHistory.length === 0) {
+      return false;
+    }
+
+    if (direction === "up") {
+      if (historyIndex === -1) {
+        historyDraftRef.current = command;
+        const nextIndex = commandHistory.length - 1;
+        setHistoryIndex(nextIndex);
+        setCommand(commandHistory[nextIndex] || "");
+        return true;
+      }
+
+      if (historyIndex > 0) {
+        const nextIndex = historyIndex - 1;
+        setHistoryIndex(nextIndex);
+        setCommand(commandHistory[nextIndex] || "");
+        return true;
+      }
+
+      return true;
+    }
+
+    if (historyIndex === -1) {
+      return false;
+    }
+
+    if (historyIndex < commandHistory.length - 1) {
+      const nextIndex = historyIndex + 1;
+      setHistoryIndex(nextIndex);
+      setCommand(commandHistory[nextIndex] || "");
+      return true;
+    }
+
+    setHistoryIndex(-1);
+    setCommand(historyDraftRef.current);
+    return true;
+  };
+
   const handleExec = async () => {
     const normalized = command.trim();
     if (!normalized || !snapshot || isRunning) {
@@ -100,7 +153,20 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
     setError("");
     try {
       await apiClient.execConsoleTab(consoleTabId, normalized);
+      setCommandHistory((current) => {
+        if (current[current.length - 1] === normalized) {
+          return current;
+        }
+        const next = [...current, normalized];
+        if (next.length > 200) {
+          return next.slice(next.length - 200);
+        }
+        return next;
+      });
+      setHistoryIndex(-1);
+      historyDraftRef.current = "";
       setCommand("");
+      requestAnimationFrame(() => restoreInputFocus());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to execute command");
     } finally {
@@ -166,12 +232,37 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
       >
         <div className="console-input-row">
           <textarea
+            ref={textareaRef}
             value={command}
-            onChange={(event) => setCommand(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setCommand(next);
+              if (historyIndex !== -1) {
+                setHistoryIndex(-1);
+              }
+              historyDraftRef.current = next;
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 void handleExec();
+                return;
+              }
+
+              if (
+                (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+                !event.shiftKey &&
+                !event.altKey &&
+                !event.metaKey &&
+                !event.ctrlKey
+              ) {
+                const hasMultipleLines = event.currentTarget.value.includes("\n");
+                if (!hasMultipleLines) {
+                  const moved = navigateHistory(event.key === "ArrowUp" ? "up" : "down");
+                  if (moved) {
+                    event.preventDefault();
+                  }
+                }
               }
             }}
             placeholder="输入命令，例如: ls -la && pwd"
