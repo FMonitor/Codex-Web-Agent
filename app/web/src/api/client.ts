@@ -63,6 +63,23 @@ export interface WorkspaceFileResponse {
   reason?: string;
 }
 
+export interface WorkspaceCopyResponse {
+  copied: boolean;
+  sourcePath: string;
+  targetPath: string;
+}
+
+export interface WorkspaceMoveResponse {
+  moved: boolean;
+  sourcePath: string;
+  targetPath: string;
+}
+
+export interface WorkspaceDeleteResponse {
+  deleted: boolean;
+  path: string;
+}
+
 export type ConsoleTabStatus = "idle" | "running";
 export type ConsoleTabEntrySource = "stdout" | "stderr" | "system";
 
@@ -187,6 +204,26 @@ export const apiClient = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path, content }),
     }).then((response) => readJson<{ saved: boolean; size: number }>(response));
+  },
+  copyWorkspaceEntry(sourcePath: string, targetPath: string): Promise<WorkspaceCopyResponse> {
+    return fetch("/api/workspace-entries/copy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourcePath, targetPath }),
+    }).then((response) => readJson<WorkspaceCopyResponse>(response));
+  },
+  moveWorkspaceEntry(sourcePath: string, targetPath: string): Promise<WorkspaceMoveResponse> {
+    return fetch("/api/workspace-entries/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourcePath, targetPath }),
+    }).then((response) => readJson<WorkspaceMoveResponse>(response));
+  },
+  deleteWorkspaceEntry(path: string): Promise<WorkspaceDeleteResponse> {
+    const query = new URLSearchParams({ path });
+    return fetch(`/api/workspace-entry?${query.toString()}`, {
+      method: "DELETE",
+    }).then((response) => readJson<WorkspaceDeleteResponse>(response));
   },
   createConsoleTab(cwd?: string): Promise<ConsoleTabSnapshot> {
     return fetch("/api/console/tabs", {

@@ -27,6 +27,26 @@ interface OpenedFile {
 const LOCAL_MESSAGE_PREFIX = "local_";
 const MESSAGE_TIME_TOLERANCE_MS = 20_000;
 
+function normalizeRelativePath(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalized || ".";
+}
+
+function isSameOrNestedPath(targetPath: string, parentPath: string): boolean {
+  const target = normalizeRelativePath(targetPath);
+  const parent = normalizeRelativePath(parentPath);
+
+  if (target === parent) {
+    return true;
+  }
+
+  if (parent === ".") {
+    return true;
+  }
+
+  return target.startsWith(`${parent}/`);
+}
+
 function isSameOptimisticUserMessage(serverMessage: ChatMessage, localMessage: ChatMessage): boolean {
   if (serverMessage.role !== "user" || localMessage.role !== "user") {
     return false;
@@ -616,6 +636,65 @@ export function useConsoleSession() {
     }
   };
 
+  const copyWorkspaceEntry = async (sourcePath: string, targetPath: string) => {
+    const result = await apiClient.copyWorkspaceEntry(sourcePath, targetPath);
+    await refreshWorkspaceTree({ silent: true });
+    return result;
+  };
+
+  const moveWorkspaceEntry = async (sourcePath: string, targetPath: string) => {
+    const result = await apiClient.moveWorkspaceEntry(sourcePath, targetPath);
+
+    setOpenedFile((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (isSameOrNestedPath(current.path, sourcePath)) {
+        const source = normalizeRelativePath(sourcePath);
+        const target = normalizeRelativePath(targetPath);
+        const currentPath = normalizeRelativePath(current.path);
+
+        if (currentPath === source) {
+          return {
+            ...current,
+            path: target,
+          };
+        }
+
+        const suffix = currentPath.slice(source.length);
+        return {
+          ...current,
+          path: `${target}${suffix}`,
+        };
+      }
+
+      return current;
+    });
+
+    await refreshWorkspaceTree({ silent: true });
+    return result;
+  };
+
+  const deleteWorkspaceEntry = async (path: string) => {
+    const result = await apiClient.deleteWorkspaceEntry(path);
+
+    setOpenedFile((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (isSameOrNestedPath(current.path, path)) {
+        return null;
+      }
+
+      return current;
+    });
+
+    await refreshWorkspaceTree({ silent: true });
+    return result;
+  };
+
   const sendMessage = async (content: string) => {
     const currentSnapshot = snapshot;
 
@@ -746,6 +825,9 @@ export function useConsoleSession() {
     openWorkspaceFile,
     closeWorkspaceFile,
     saveWorkspaceFile,
+    copyWorkspaceEntry,
+    moveWorkspaceEntry,
+    deleteWorkspaceEntry,
     setCreateOptions,
     createSession,
     startNewSessionDraft,

@@ -3,9 +3,10 @@ import { apiClient, type ConsoleTabEvent, type ConsoleTabSnapshot } from "../api
 
 interface ConsoleTabPanelProps {
   consoleTabId: string;
+  onCommandComplete?: () => void;
 }
 
-export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
+export function ConsoleTabPanel({ consoleTabId, onCommandComplete }: ConsoleTabPanelProps) {
   const [snapshot, setSnapshot] = useState<ConsoleTabSnapshot | null>(null);
   const [command, setCommand] = useState("");
   const [error, setError] = useState("");
@@ -13,6 +14,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
   const outputRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const historyDraftRef = useRef("");
+  const commandPendingRef = useRef(false);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
@@ -20,6 +22,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
     let cancelled = false;
     setSnapshot(null);
     setError("");
+    commandPendingRef.current = false;
 
     apiClient
       .getConsoleTab(consoleTabId)
@@ -37,7 +40,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [consoleTabId]);
+  }, [consoleTabId, onCommandComplete]);
 
   useEffect(() => {
     const source = new EventSource(`/api/console/tabs/${encodeURIComponent(consoleTabId)}/events`);
@@ -67,6 +70,12 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
         if (!current) {
           return current;
         }
+
+        if (payload.status === "idle" && commandPendingRef.current) {
+          commandPendingRef.current = false;
+          onCommandComplete?.();
+        }
+
         return {
           ...current,
           status: payload.status,
@@ -77,6 +86,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
     };
 
     source.onerror = () => {
+      commandPendingRef.current = false;
       setError((current) => current || "Console stream disconnected.");
     };
 
@@ -162,6 +172,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
       }
 
       await apiClient.execConsoleTab(consoleTabId, normalized);
+      commandPendingRef.current = true;
       setCommandHistory((current) => {
         if (current[current.length - 1] === normalized) {
           return current;
@@ -177,6 +188,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
       setCommand("");
       requestAnimationFrame(() => restoreInputFocus());
     } catch (cause) {
+      commandPendingRef.current = false;
       setError(cause instanceof Error ? cause.message : "Failed to execute command");
     } finally {
       setRunningAction("idle");
@@ -193,6 +205,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
     try {
       await apiClient.stopConsoleTab(consoleTabId);
     } catch (cause) {
+      commandPendingRef.current = false;
       setError(cause instanceof Error ? cause.message : "Failed to stop command");
     } finally {
       setRunningAction("idle");

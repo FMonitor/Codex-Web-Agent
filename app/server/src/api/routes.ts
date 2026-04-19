@@ -3,7 +3,7 @@ import {
   createSessionSchema,
   sendMessageSchema,
 } from "@copilot-console/shared";
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, relative, resolve } from "node:path";
 import type { RuntimeName } from "@copilot-console/shared";
 import { ConsoleTabManager } from "../console/tab-manager.js";
@@ -89,6 +89,17 @@ function guessLanguage(path: string): string {
 
   const extension = extname(path).toLowerCase();
   return LANGUAGE_MAP[extension] || "plaintext";
+}
+
+function normalizeWorkspaceRelativePath(value: string): string {
+  const normalized = value.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalized || ".";
+}
+
+function resolveWorkspacePath(rootPath: string, inputPath: string): { relativePath: string; absolutePath: string } {
+  const relativePath = normalizeWorkspaceRelativePath(inputPath);
+  const absolutePath = relativePath === "." ? rootPath : resolve(rootPath, relativePath);
+  return { relativePath, absolutePath };
 }
 
 async function buildWorkspaceTree(
@@ -441,6 +452,193 @@ export function createApiRouter(
         saved: true,
         size: Buffer.byteLength(content, "utf8"),
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/workspace-entries/copy", async (req, res, next) => {
+    try {
+      const rootPath = resolve(defaultWorkspacePath);
+      const sourceInput = typeof req.body?.sourcePath === "string" ? req.body.sourcePath : "";
+      const targetInput = typeof req.body?.targetPath === "string" ? req.body.targetPath : "";
+
+      if (!sourceInput.trim() || !targetInput.trim()) {
+        res.status(400).json({ error: "sourcePath and targetPath are required" });
+        return;
+      }
+
+      const source = resolveWorkspacePath(rootPath, sourceInput);
+      const target = resolveWorkspacePath(rootPath, targetInput);
+
+      if (!isPathInside(rootPath, source.absolutePath) || !isPathInside(rootPath, target.absolutePath)) {
+        res.status(400).json({ error: "Requested path is outside the workspace root" });
+        return;
+      }
+
+      if (source.relativePath === ".") {
+        res.status(400).json({ error: "Workspace root cannot be copied" });
+        return;
+      }
+
+      if (target.relativePath === ".") {
+        res.status(400).json({ error: "targetPath cannot be workspace root" });
+        return;
+      }
+
+      if (source.absolutePath === target.absolutePath) {
+        res.status(400).json({ error: "targetPath must be different from sourcePath" });
+        return;
+      }
+
+      const sourceStat = await lstat(source.absolutePath);
+      await mkdir(dirname(target.absolutePath), { recursive: true });
+
+      try {
+        await cp(source.absolutePath, target.absolutePath, {
+          recursive: sourceStat.isDirectory(),
+          force: false,
+          errorOnExist: true,
+          preserveTimestamps: true,
+        });
+      } catch (error) {
+        const errno = error as NodeJS.ErrnoException;
+        if (errno.code === "EEXIST") {
+          res.status(409).json({ error: "targetPath already exists" });
+          return;
+        }
+        if (errno.code === "ENOENT") {
+          res.status(404).json({ error: "sourcePath does not exist" });
+          return;
+        }
+        throw error;
+      }
+
+      res.json({
+        copied: true,
+        sourcePath: source.relativePath,
+        targetPath: target.relativePath,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/workspace-entries/move", async (req, res, next) => {
+    try {
+      const rootPath = resolve(defaultWorkspacePath);
+      const sourceInput = typeof req.body?.sourcePath === "string" ? req.body.sourcePath : "";
+      const targetInput = typeof req.body?.targetPath === "string" ? req.body.targetPath : "";
+
+      if (!sourceInput.trim() || !targetInput.trim()) {
+        res.status(400).json({ error: "sourcePath and targetPath are required" });
+        return;
+      }
+
+      const source = resolveWorkspacePath(rootPath, sourceInput);
+      const target = resolveWorkspacePath(rootPath, targetInput);
+
+      if (!isPathInside(rootPath, source.absolutePath) || !isPathInside(rootPath, target.absolutePath)) {
+        res.status(400).json({ error: "Requested path is outside the workspace root" });
+        return;
+      }
+
+      if (source.relativePath === ".") {
+        res.status(400).json({ error: "Workspace root cannot be moved" });
+        return;
+      }
+
+      if (target.relativePath === ".") {
+        res.status(400).json({ error: "targetPath cannot be workspace root" });
+        return;
+      }
+
+      if (source.absolutePath === target.absolutePath) {
+        res.status(400).json({ error: "targetPath must be different from sourcePath" });
+        return;
+      }
+
+      const sourceStat = await lstat(source.absolutePath);
+      if (sourceStat.isDirectory() && isPathInside(source.absolutePath, target.absolutePath)) {
+        res.status(400).json({ error: "Cannot move a directory into its own subdirectory" });
+        return;
+      }
+
+      try {
+        await lstat(target.absolutePath);
+        res.status(409).json({ error: "targetPath already exists" });
+        return;
+      } catch (error) {
+        const errno = error as NodeJS.ErrnoException;
+        if (errno.code !== "ENOENT") {
+          throw error;
+        }
+      }
+
+      await mkdir(dirname(target.absolutePath), { recursive: true });
+
+      try {
+        await rename(source.absolutePath, target.absolutePath);
+      } catch (error) {
+        const errno = error as NodeJS.ErrnoException;
+        if (errno.code === "EXDEV") {
+          await cp(source.absolutePath, target.absolutePath, {
+            recursive: sourceStat.isDirectory(),
+            force: false,
+            errorOnExist: true,
+            preserveTimestamps: true,
+          });
+          await rm(source.absolutePath, { recursive: true, force: false });
+        } else if (errno.code === "ENOENT") {
+          res.status(404).json({ error: "sourcePath does not exist" });
+          return;
+        } else {
+          throw error;
+        }
+      }
+
+      res.json({
+        moved: true,
+        sourcePath: source.relativePath,
+        targetPath: target.relativePath,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/workspace-entry", async (req, res, next) => {
+    try {
+      const rootPath = resolve(defaultWorkspacePath);
+      const inputPath = typeof req.query.path === "string" ? req.query.path : "";
+      if (!inputPath.trim()) {
+        res.status(400).json({ error: "path query is required" });
+        return;
+      }
+
+      const target = resolveWorkspacePath(rootPath, inputPath);
+      if (!isPathInside(rootPath, target.absolutePath)) {
+        res.status(400).json({ error: "Requested path is outside the workspace root" });
+        return;
+      }
+
+      if (target.relativePath === ".") {
+        res.status(400).json({ error: "Workspace root cannot be deleted" });
+        return;
+      }
+
+      try {
+        await rm(target.absolutePath, { recursive: true, force: false });
+      } catch (error) {
+        const errno = error as NodeJS.ErrnoException;
+        if (errno.code === "ENOENT") {
+          res.status(404).json({ error: "path does not exist" });
+          return;
+        }
+        throw error;
+      }
+
+      res.json({ deleted: true, path: target.relativePath });
     } catch (error) {
       next(error);
     }

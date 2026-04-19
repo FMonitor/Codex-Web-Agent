@@ -140,6 +140,73 @@ function buildToolOutputSummary(item: CodexItem): string | undefined {
   return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
+interface NormalizedTodoStep {
+  text: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+function normalizeTodoStepStatus(value?: string, completed?: boolean): "pending" | "in_progress" | "completed" {
+  if (completed) {
+    return "completed";
+  }
+
+  const normalized = (value || "").trim().toLowerCase();
+  if (!normalized) {
+    return "pending";
+  }
+
+  if (normalized === "completed" || normalized === "complete" || normalized === "done" || normalized === "finished") {
+    return "completed";
+  }
+
+  if (normalized === "in_progress" || normalized === "in-progress" || normalized.includes("progress")) {
+    return "in_progress";
+  }
+
+  return "pending";
+}
+
+function normalizeTodoSteps(item: CodexItem): NormalizedTodoStep[] {
+  if (Array.isArray(item.steps) && item.steps.length > 0) {
+    return item.steps.map((step) => ({
+      text: (step.description || "未命名步骤").trim(),
+      status: normalizeTodoStepStatus(step.status),
+    }));
+  }
+
+  if (Array.isArray(item.items) && item.items.length > 0) {
+    return item.items.map((step) => ({
+      text: (step.text || "未命名步骤").trim(),
+      status: normalizeTodoStepStatus(undefined, Boolean(step.completed)),
+    }));
+  }
+
+  return [];
+}
+
+function buildTodoProgressMessage(rawType: string, item: CodexItem): string | null {
+  if (rawType === "item.completed") {
+    return null;
+  }
+
+  const action = rawType === "item.started" ? "执行计划已创建" : "执行计划已更新";
+  const steps = normalizeTodoSteps(item);
+  if (steps.length === 0) {
+    return `${action}。下一步：继续执行计划。`;
+  }
+
+  const completedCount = steps.filter((step) => step.status === "completed").length;
+  const inProgress = steps.find((step) => step.status === "in_progress");
+  const nextPending = steps.find((step) => step.status === "pending");
+  const nextStep = inProgress || nextPending;
+
+  if (nextStep) {
+    return `${action}：已完成 ${completedCount}/${steps.length}。下一步：${nextStep.text}`;
+  }
+
+  return `${action}：已完成 ${completedCount}/${steps.length}。下一步：整理结果并回复。`;
+}
+
 export class CodexEventMapper {
   private readonly messageTextByItemId = new Map<string, string>();
   private readonly threadEventsSeen = new Set<string>();
@@ -293,19 +360,13 @@ export class CodexEventMapper {
     }
 
     if (item.type === "todo_list") {
-      const actionMessage =
-        raw.type === "item.started"
-          ? "执行计划已创建"
-          : raw.type === "item.updated"
-            ? "执行计划已更新"
-            : raw.type === "item.completed"
-              ? "执行计划已完成"
-              : "执行计划已变更";
-
-      events.push({
-        ...base("assistant.intent", "planning"),
-        message: actionMessage,
-      });
+      const message = buildTodoProgressMessage(raw.type, item);
+      if (message) {
+        events.push({
+          ...base("assistant.intent", "planning"),
+          message,
+        });
+      }
 
       return events;
     }

@@ -51,6 +51,10 @@ export function App() {
     openWorkspaceFile,
     closeWorkspaceFile,
     saveWorkspaceFile,
+    copyWorkspaceEntry,
+    moveWorkspaceEntry,
+    deleteWorkspaceEntry,
+    refreshWorkspaceTree,
   } = useConsoleSession();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -207,6 +211,9 @@ export function App() {
               onArchiveSession={archiveSession}
               onExportSession={exportSession}
               onDeleteSession={deleteSession}
+              onCopyEntry={copyWorkspaceEntry}
+              onMoveEntry={moveWorkspaceEntry}
+              onDeleteEntry={deleteWorkspaceEntry}
             />
           </div>
 
@@ -263,7 +270,10 @@ export function App() {
               ) : null}
 
               {activeTab?.type === "console" && activeConsoleId ? (
-                <ConsoleTabPanel consoleTabId={activeConsoleId} />
+                <ConsoleTabPanel
+                  consoleTabId={activeConsoleId}
+                  onCommandComplete={() => void refreshWorkspaceTree({ silent: true })}
+                />
               ) : null}
 
               {activeTab?.type === "file" && !activeFilePath ? (
