@@ -128,6 +128,10 @@ function applyEvent(snapshot: SessionSnapshot, event: ConsoleEvent): SessionSnap
 export function useConsoleSession() {
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
+  const [draftSessionRequested, setDraftSessionRequested] = useState(false);
+  const [modelOptionsLoading, setModelOptionsLoading] = useState(false);
+  const [openaiLoginPending, setOpenaiLoginPending] = useState(false);
+  const [openaiPromptShown, setOpenaiPromptShown] = useState(false);
   const [createOptions, setCreateOptions] = useState<Partial<CreateSessionInput>>({
     runtimeProfile: "custom-api",
     model: "",
@@ -238,6 +242,7 @@ export function useConsoleSession() {
 
       const currentProfile = createOptions.runtimeProfile || "custom-api";
       setModelOptions(modelCacheRef.current[currentProfile] || []);
+      setModelOptionsLoading(false);
     });
 
     return () => {
@@ -255,10 +260,12 @@ export function useConsoleSession() {
     const cached = modelCacheRef.current[profile];
     if (cached && cached.length > 0) {
       setModelOptions(cached);
+      setModelOptionsLoading(false);
       return;
     }
 
     let cancelled = false;
+    setModelOptionsLoading(true);
 
     apiClient
       .listRuntimeModels(runtime, profile)
@@ -268,6 +275,7 @@ export function useConsoleSession() {
         }
         modelCacheRef.current[profile] = response.models;
         setModelOptions(response.models);
+        setModelOptionsLoading(false);
       })
       .catch(() => {
         if (cancelled) {
@@ -277,12 +285,94 @@ export function useConsoleSession() {
         const fallbackModels = fallbackRuntime?.models || [];
         modelCacheRef.current[profile] = fallbackModels;
         setModelOptions(fallbackModels);
+        setModelOptionsLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
   }, [bootstrap, createOptions.runtimeProfile]);
+
+  const requestOpenAILogin = useCallback(async (): Promise<boolean> => {
+    if (!bootstrap || openaiLoginPending) {
+      return false;
+    }
+
+    setOpenaiLoginPending(true);
+    setError("");
+    try {
+      const loginResult = await apiClient.requestRuntimeLogin(
+        "codex-cli",
+        "openai-login",
+        bootstrap.defaultWorkspacePath,
+      );
+
+      const modelsResponse = await apiClient.listRuntimeModels("codex-cli", "openai-login");
+      modelCacheRef.current["openai-login"] = modelsResponse.models;
+      if ((createOptions.runtimeProfile || "custom-api") === "openai-login") {
+        setModelOptions(modelsResponse.models);
+      }
+
+      if (!loginResult.authenticated) {
+          const details = loginResult.output.slice(-8).join("\n");
+          const lastLine = loginResult.output[loginResult.output.length - 1] || "OpenAI 登录未完成，请重试。";
+          if (details && typeof window !== "undefined") {
+            window.alert(`OpenAI 登录失败详情：\n${details}`);
+          }
+          setError(`OpenAI 登录失败：${lastLine}`);
+        return false;
+      }
+
+      if (loginResult.output.length > 0 && typeof window !== "undefined") {
+        const hint = loginResult.output.slice(-6).join("\n");
+        window.alert(`OpenAI 登录流程输出：\n${hint}`);
+      }
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "OpenAI 登录失败");
+      return false;
+    } finally {
+      setOpenaiLoginPending(false);
+    }
+  }, [bootstrap, createOptions.runtimeProfile, openaiLoginPending]);
+
+  useEffect(() => {
+    const profile = createOptions.runtimeProfile || "custom-api";
+    if (profile !== "openai-login") {
+      setOpenaiPromptShown(false);
+      return;
+    }
+
+    const openaiModelsResolved = Object.prototype.hasOwnProperty.call(modelCacheRef.current, "openai-login");
+    if (!openaiModelsResolved) {
+      return;
+    }
+
+    if (openaiPromptShown || modelOptionsLoading || openaiLoginPending) {
+      return;
+    }
+
+    if (modelOptions.length > 0) {
+      return;
+    }
+
+    setOpenaiPromptShown(true);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const shouldLogin = window.confirm("检测到 OpenAI 模型列表为空，可能尚未登录。是否现在拉起登录流程？");
+    if (shouldLogin) {
+      void requestOpenAILogin();
+    }
+  }, [
+    createOptions.runtimeProfile,
+    modelOptions.length,
+    modelOptionsLoading,
+    openaiLoginPending,
+    openaiPromptShown,
+    requestOpenAILogin,
+  ]);
 
   useEffect(() => {
     if (!snapshot?.session.id) {
@@ -310,46 +400,19 @@ export function useConsoleSession() {
   }, [snapshot?.session.id]);
 
   useEffect(() => {
-    if (!snapshot?.fileChanges.length) {
+    const lastEvent = snapshot?.timeline[snapshot.timeline.length - 1];
+    if (!lastEvent) {
       return;
     }
-    void refreshWorkspaceTree();
-  }, [snapshot?.fileChanges[0]?.id, refreshWorkspaceTree]);
 
-  useEffect(() => {
-    let disposed = false;
-
-    const poll = async () => {
-      if (disposed) {
-        return;
-      }
-
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-        return;
-      }
-
-      try {
-        await refreshSessions();
-      } catch {
-        // Ignore background polling failures.
-      }
-
-      try {
-        await refreshWorkspaceTree({ silent: true });
-      } catch {
-        // Ignore background polling failures.
-      }
-    };
-
-    const timer = window.setInterval(() => {
-      void poll();
-    }, 10000);
-
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshSessions, refreshWorkspaceTree]);
+    if (
+      lastEvent.type === "file.changed" ||
+      lastEvent.type === "tool.execution_complete" ||
+      lastEvent.type === "tool.execution_failed"
+    ) {
+      void refreshWorkspaceTree({ silent: true });
+    }
+  }, [snapshot?.timeline.length, refreshWorkspaceTree]);
 
   useEffect(() => {
     if (!snapshot) {
@@ -372,7 +435,7 @@ export function useConsoleSession() {
     }
     setError("");
     const created = await apiClient.createSession({
-      title: `Console ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`,
+      title: createOptions.model?.trim() || "新会话",
       workspacePath: bootstrap.defaultWorkspacePath,
       runtime: "codex-cli",
       runtimeProfile: createOptions.runtimeProfile || "custom-api",
@@ -384,6 +447,13 @@ export function useConsoleSession() {
     setSnapshot(created);
     await refreshSessions();
     return created;
+  };
+
+  const startNewSessionDraft = () => {
+    setError("");
+    setSnapshot(null);
+    setDraftSessionRequested(true);
+    setOpenedFile(null);
   };
 
   const selectSession = async (sessionId: string) => {
@@ -487,13 +557,14 @@ export function useConsoleSession() {
 
   const sendMessage = async (content: string) => {
     const currentSnapshot = snapshot;
-    
+
     // If no session exists, create one first
     if (!currentSnapshot) {
       setError("");
       try {
         const newSession = await createSession();
         if (newSession) {
+          setDraftSessionRequested(false);
           // Send message to newly created session
           const optimisticMessage: ChatMessage = {
             id: `local_${Date.now()}`,
@@ -518,6 +589,27 @@ export function useConsoleSession() {
               : current,
           );
           await apiClient.sendMessage(newSession.session.id, { content });
+
+          void apiClient
+            .generateSessionTitle(newSession.session.id, content)
+            .then(async ({ session }) => {
+              setSnapshot((current) =>
+                current && current.session.id === session.id
+                  ? {
+                      ...current,
+                      session: {
+                        ...current.session,
+                        title: session.title,
+                        updatedAt: session.updatedAt,
+                      },
+                    }
+                  : current,
+              );
+              await refreshSessions();
+            })
+            .catch(() => {
+              // Title generation failure should not block the session flow.
+            });
         }
       } catch (error) {
         setError(error instanceof Error ? error.message : "Failed to send message");
@@ -597,6 +689,8 @@ export function useConsoleSession() {
     saveWorkspaceFile,
     setCreateOptions,
     createSession,
+    startNewSessionDraft,
+    draftSessionRequested,
     sendMessage,
     stopSession,
   };

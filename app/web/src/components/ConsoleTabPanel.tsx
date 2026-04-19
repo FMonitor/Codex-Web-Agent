@@ -67,6 +67,7 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
           ...current,
           status: payload.status,
           updatedAt: payload.updatedAt,
+          cwd: payload.cwd || current.cwd,
         };
       });
     };
@@ -163,35 +164,37 @@ export function ConsoleTabPanel({ consoleTabId }: ConsoleTabPanelProps) {
           void handleExec();
         }}
       >
-        <textarea
-          value={command}
-          onChange={(event) => setCommand(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void handleExec();
-            }
-          }}
-          placeholder="输入命令，例如: ls -la && pwd"
-          rows={3}
-          disabled={!snapshot || isRunning || runningAction !== "idle"}
-        />
-        <div className="console-actions">
-          <button
-            type="button"
-            className={`danger-button ${isRunning ? "active" : ""}`}
-            onClick={() => void handleStop()}
-            disabled={!isRunning || runningAction === "stop"}
-          >
-            {runningAction === "stop" ? "停止中..." : "停止"}
-          </button>
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={!snapshot || isRunning || runningAction !== "idle" || !command.trim()}
-          >
-            {runButtonLabel}
-          </button>
+        <div className="console-input-row">
+          <textarea
+            value={command}
+            onChange={(event) => setCommand(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void handleExec();
+              }
+            }}
+            placeholder="输入命令，例如: ls -la && pwd"
+            rows={3}
+            disabled={!snapshot || isRunning || runningAction !== "idle"}
+          />
+          <div className="console-actions">
+            <button
+              type="button"
+              className={`danger-button ${isRunning ? "active" : ""}`}
+              onClick={() => void handleStop()}
+              disabled={!isRunning || runningAction === "stop"}
+            >
+              {runningAction === "stop" ? "停止中..." : "停止"}
+            </button>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={!snapshot || isRunning || runningAction !== "idle" || !command.trim()}
+            >
+              {runButtonLabel}
+            </button>
+          </div>
         </div>
       </form>
     </section>

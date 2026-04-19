@@ -12,10 +12,17 @@ export interface RuntimeInfo {
   models?: string[];
 }
 
+export interface RuntimeLoginResult {
+  authenticated: boolean;
+  output: string[];
+}
+
 export interface RuntimeAdapter {
   readonly runtimeName: RuntimeName;
   createSession(input: CreateSessionInput & { id: string }): Promise<SessionSummary>;
   sendMessage(sessionId: string, content: string): Promise<void>;
+  generateTitle?(sessionId: string, content: string): Promise<string | null>;
+  ensureProfileLogin?(profile: string, workspacePath: string): Promise<RuntimeLoginResult>;
   stopSession(sessionId: string): Promise<void>;
   subscribe(sessionId: string, listener: RuntimeEventListener): Promise<() => void>;
   disposeSession(sessionId: string): Promise<void>;

@@ -28,7 +28,7 @@ FROM node:22-bookworm-slim
 ARG APT_MIRROR
 ARG APT_SECURITY_MIRROR
 
-WORKDIR /workspace
+WORKDIR /opt/copilot-console
 
 # Required for CODEX_CLI_COMMAND using docker exec against the CodexCLI container.
 RUN printf 'Types: deb\nURIs: %s\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: %s\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' \
@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   docker.io \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /workspace /workspace
+COPY --from=build /workspace /opt/copilot-console
 
 ENV NODE_ENV=production
 ENV PORT=8787

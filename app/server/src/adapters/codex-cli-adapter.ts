@@ -1,7 +1,7 @@
 import type { CreateSessionInput, SessionSummary } from "@copilot-console/shared";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { CodexEventMapper, type CodexRawEvent } from "../mappers/codex-event-mapper.js";
-import type { RuntimeAdapter, RuntimeEventListener } from "../runtime/runtime-adapter.js";
+import type { RuntimeAdapter, RuntimeEventListener, RuntimeLoginResult } from "../runtime/runtime-adapter.js";
 import { createId } from "../utils/ids.js";
 import { nowIso } from "../utils/time.js";
 
@@ -13,6 +13,7 @@ interface CodexSessionState {
   threadId: string | null;
   queuedMessages: string[];
   stoppedByUser: boolean;
+  loginPromise: Promise<boolean> | null;
   mapper: CodexEventMapper;
 }
 
@@ -66,6 +67,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
       threadId: null,
       queuedMessages: [],
       stoppedByUser: false,
+      loginPromise: null,
       mapper: new CodexEventMapper(session),
     });
 
@@ -74,7 +76,7 @@ export class CodexCliAdapter implements RuntimeAdapter {
 
   async sendMessage(sessionId: string, content: string): Promise<void> {
     const state = this.getSessionState(sessionId);
-    if (state.currentProcess) {
+    if (state.currentProcess || state.loginPromise) {
       state.queuedMessages.push(content);
       this.publish(state, {
         id: createId("evt"),
@@ -84,12 +86,70 @@ export class CodexCliAdapter implements RuntimeAdapter {
         agentId: state.session.agentId,
         agentRole: state.session.agentRole,
         phase: "planning",
-        message: "Codex 当前正在执行，本条消息已排队，待当前 turn 完成后自动继续。",
+        message: state.currentProcess
+          ? "Codex 当前正在执行，本条消息已排队，待当前 turn 完成后自动继续。"
+          : "Codex 正在进行 OpenAI 登录，本条消息已排队，登录完成后自动继续。",
       });
       return;
     }
 
-    this.startRun(state, content);
+    void this.startRunAfterAuth(state, content);
+  }
+
+  async generateTitle(sessionId: string, content: string): Promise<string | null> {
+    const state = this.getSessionState(sessionId);
+    const authenticated = await this.ensureOpenAILogin(state);
+    if (!authenticated) {
+      return null;
+    }
+
+    const prompt = this.buildTitlePrompt(content);
+    const args = this.buildArgs(state, prompt);
+    const child = this.spawnCommand(args, state.session.workspacePath);
+    child.stdin.end();
+
+    child.stdout.setEncoding("utf8");
+
+    let stdoutBuffer = "";
+    let titleText = "";
+
+    const readJsonLine = (line: string) => {
+      try {
+        const raw = JSON.parse(line) as CodexRawEvent;
+        const item = raw.item;
+        if (item?.type === "agent_message" && typeof item.text === "string" && item.text.trim()) {
+          titleText = item.text.trim();
+        }
+      } catch {
+        // Ignore non-JSON lines.
+      }
+    };
+
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() || "";
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) {
+          continue;
+        }
+        readJsonLine(text);
+      }
+    });
+
+    return await new Promise<string | null>((resolve) => {
+      const finish = () => {
+        const trailing = stdoutBuffer.trim();
+        if (trailing) {
+          readJsonLine(trailing);
+        }
+        resolve(this.normalizeTitle(titleText));
+      };
+
+      child.on("error", () => resolve(null));
+      child.on("exit", () => finish());
+    });
   }
 
   async stopSession(sessionId: string): Promise<void> {
@@ -183,6 +243,47 @@ export class CodexCliAdapter implements RuntimeAdapter {
     } catch {
       return [];
     }
+  }
+
+  async ensureProfileLogin(profile: string, workspacePath: string): Promise<RuntimeLoginResult> {
+    const profileName = profile.trim() || this.defaultProfile || "custom-api";
+    if (profileName !== "openai-login") {
+      return {
+        authenticated: true,
+        output: ["Current profile does not require device-auth login."],
+      };
+    }
+
+    if (process.env.OPENAI_API_KEY?.trim()) {
+      return {
+        authenticated: true,
+        output: ["OPENAI_API_KEY is configured. Device-auth login is skipped."],
+      };
+    }
+
+    const cwd = workspacePath.trim() || process.cwd();
+    const alreadyLoggedIn = await this.checkOpenAILoginStatus(cwd);
+    if (alreadyLoggedIn) {
+      return {
+        authenticated: true,
+        output: ["OpenAI is already logged in."],
+      };
+    }
+
+    const output: string[] = [];
+    const loginResult = await this.runOpenAILoginCommandInternal(cwd, (source, content) => {
+      output.push(`[${source}] ${content}`);
+    });
+    const verified = loginResult ? await this.checkOpenAILoginStatus(cwd) : false;
+
+    if (!verified && output.length === 0) {
+      output.push("OpenAI login did not complete. Please follow device-auth instructions and retry.");
+    }
+
+    return {
+      authenticated: verified,
+      output: output.slice(-120),
+    };
   }
 
   private startRun(state: CodexSessionState, prompt: string): void {
@@ -322,8 +423,231 @@ export class CodexCliAdapter implements RuntimeAdapter {
 
       const nextPrompt = state.queuedMessages.shift();
       if (nextPrompt) {
-        this.startRun(state, nextPrompt);
+        void this.startRunAfterAuth(state, nextPrompt);
       }
+    });
+  }
+
+  private buildTitlePrompt(content: string): string {
+    const compact = content.replace(/\s+/g, " ").trim();
+    return [
+      "你是标题生成器。",
+      "请基于用户请求生成一个简短中文会话标题。",
+      "要求：10个汉字以内，不要标点，不要引号，不要解释。",
+      `用户请求：${compact}`,
+    ].join("\n");
+  }
+
+  private normalizeTitle(value: string): string | null {
+    const firstLine = value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    if (!firstLine) {
+      return null;
+    }
+
+    const normalized = firstLine
+      .replace(/["'“”‘’`]+/g, "")
+      .replace(/[.,!?，。！？:：;；]+/g, "")
+      .trim();
+
+    if (!normalized) {
+      return null;
+    }
+    return normalized.slice(0, 24);
+  }
+
+  private async startRunAfterAuth(state: CodexSessionState, prompt: string): Promise<void> {
+    const authenticated = await this.ensureOpenAILogin(state);
+    if (!authenticated) {
+      state.queuedMessages = [];
+      this.publish(state, {
+        id: createId("evt"),
+        sessionId: state.session.id,
+        type: "assistant.intent",
+        timestamp: nowIso(),
+        agentId: state.session.agentId,
+        agentRole: state.session.agentRole,
+        phase: "planning",
+        message: "OpenAI 登录未完成，请先完成登录后重试。",
+      });
+      return;
+    }
+
+    this.startRun(state, prompt);
+  }
+
+  private async ensureOpenAILogin(state: CodexSessionState): Promise<boolean> {
+    if (state.session.runtimeProfile !== "openai-login") {
+      return true;
+    }
+
+    if (process.env.OPENAI_API_KEY?.trim()) {
+      return true;
+    }
+
+    if (state.loginPromise) {
+      return state.loginPromise;
+    }
+
+    const promise = this.runOpenAILoginFlow(state).finally(() => {
+      state.loginPromise = null;
+    });
+    state.loginPromise = promise;
+    return promise;
+  }
+
+  private async runOpenAILoginFlow(state: CodexSessionState): Promise<boolean> {
+    const alreadyLoggedIn = await this.checkOpenAILoginStatus(state.session.workspacePath);
+    if (alreadyLoggedIn) {
+      return true;
+    }
+
+    this.publish(state, {
+      id: createId("evt"),
+      sessionId: state.session.id,
+      type: "assistant.intent",
+      timestamp: nowIso(),
+      agentId: state.session.agentId,
+      agentRole: state.session.agentRole,
+      phase: "planning",
+      message: "检测到 OpenAI Profile，正在拉起 Codex 登录流程（device-auth）。",
+    });
+
+    const loginResult = await this.runOpenAILoginCommand(state);
+    if (!loginResult) {
+      return false;
+    }
+
+    const verified = await this.checkOpenAILoginStatus(state.session.workspacePath);
+    if (verified) {
+      this.publish(state, {
+        id: createId("evt"),
+        sessionId: state.session.id,
+        type: "assistant.intent",
+        timestamp: nowIso(),
+        agentId: state.session.agentId,
+        agentRole: state.session.agentRole,
+        phase: "planning",
+        message: "OpenAI 登录完成，开始处理请求。",
+      });
+    }
+    return verified;
+  }
+
+  private async runOpenAILoginCommand(state: CodexSessionState): Promise<boolean> {
+    return this.runOpenAILoginCommandInternal(state.session.workspacePath, (source, content) => {
+      this.publishRuntimeLog(state, source, content);
+    });
+  }
+
+  private async runOpenAILoginCommandInternal(
+    cwd: string,
+    onLine?: (source: "stdout" | "stderr", content: string) => void,
+  ): Promise<boolean> {
+    const child = this.spawnCommand(["login", "--device-auth"], cwd);
+    child.stdin.end();
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+
+    const flushBuffer = (source: "stdout" | "stderr") => {
+      const buffer = source === "stdout" ? stdoutBuffer : stderrBuffer;
+      const text = buffer.trim();
+      if (!text || !onLine) {
+        return;
+      }
+      onLine(source, text);
+    };
+
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() || "";
+      for (const line of lines) {
+        const content = line.trim();
+        if (!content || !onLine) {
+          continue;
+        }
+        onLine("stdout", content);
+      }
+    });
+
+    child.stderr.on("data", (chunk: string) => {
+      stderrBuffer += chunk;
+      const lines = stderrBuffer.split(/\r?\n/);
+      stderrBuffer = lines.pop() || "";
+      for (const line of lines) {
+        const content = line.trim();
+        if (!content || !onLine) {
+          continue;
+        }
+        onLine("stderr", content);
+      }
+    });
+
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const done = (value: boolean) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        flushBuffer("stdout");
+        flushBuffer("stderr");
+        resolve(value);
+      };
+
+      child.on("error", () => done(false));
+      child.on("exit", (code) => done(code === 0));
+    });
+  }
+
+  private async checkOpenAILoginStatus(cwd: string): Promise<boolean> {
+    const child = this.spawnCommand(["login", "status"], cwd);
+    child.stdin.end();
+
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const done = (value: boolean) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(value);
+      };
+
+      child.on("error", () => done(false));
+      child.on("exit", (code) => done(code === 0));
+    });
+  }
+
+  private publishRuntimeLog(
+    state: CodexSessionState,
+    source: "stdout" | "stderr",
+    content: string,
+  ): void {
+    this.publish(state, {
+      id: createId("evt"),
+      sessionId: state.session.id,
+      type: source === "stdout" ? "log.stdout" : "log.stderr",
+      timestamp: nowIso(),
+      agentId: state.session.agentId,
+      agentRole: state.session.agentRole,
+      phase: "running",
+      logEntry: {
+        id: createId("log"),
+        sessionId: state.session.id,
+        source,
+        content,
+        timestamp: nowIso(),
+        agentId: state.session.agentId,
+        agentRole: state.session.agentRole,
+      },
     });
   }
 

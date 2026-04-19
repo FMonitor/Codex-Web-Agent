@@ -106,6 +106,21 @@ export class SessionStore {
     return message;
   }
 
+  updateSessionTitle(sessionId: string, title: string): SessionSummary {
+    const record = this.getRecord(sessionId);
+    const normalized = title.trim();
+    if (!normalized) {
+      return record.session;
+    }
+
+    record.session = {
+      ...record.session,
+      title: normalized.slice(0, 120),
+      updatedAt: nowIso(),
+    };
+    return record.session;
+  }
+
   getSnapshot(sessionId: string): SessionSnapshot {
     const record = this.getRecord(sessionId);
     return {

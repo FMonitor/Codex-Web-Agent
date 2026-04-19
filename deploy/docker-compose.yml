@@ -11,7 +11,7 @@ services:
     environment:
       PORT: 8787
       DEFAULT_RUNTIME: ${DEFAULT_RUNTIME:-codex-cli}
-      DEFAULT_WORKSPACE_PATH: ${WORKSPACE_PATH:-/host-workspace/Multi-Copilot}
+      DEFAULT_WORKSPACE_PATH: /workspace
       CODEX_CLI_COMMAND: ${CODEX_CLI_COMMAND:-docker exec -i codex-cli-runtime codex}
       CODEX_CUSTOM_API_BASE_URL: ${CODEX_CUSTOM_API_BASE_URL:-http://api-adapter:11434/v1}
       CODEX_PROFILE: ${CODEX_PROFILE:-custom-api}
@@ -20,7 +20,7 @@ services:
       - "${APP_PORT:-8787}:8787"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOST_WORKSPACE_ROOT:-/home/monitor}:/host-workspace
+      - ${WORKSPACE_PATH:-../workspace}:/workspace
     depends_on:
       - codex-cli
       - api-adapter
@@ -45,8 +45,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - codex-home:/home/codex/.codex
-      - ${HOST_WORKSPACE_ROOT:-/home/monitor}:/host-workspace
-    working_dir: ${WORKSPACE_PATH:-/host-workspace/Multi-Copilot}
+      - ${WORKSPACE_PATH:-../workspace}:/workspace
+    working_dir: /workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

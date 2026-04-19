@@ -1,6 +1,6 @@
 import type { SessionSummary } from "@copilot-console/shared";
 import type { WorkspaceTreeNode } from "../api/client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type SidebarTab = "sessions" | "files";
@@ -62,6 +62,7 @@ export function LeftSidebar({
   onExportSession,
   onDeleteSession,
 }: LeftSidebarProps) {
+  const sessionListRef = useRef<HTMLDivElement | null>(null);
   const [actionMenu, setActionMenu] = useState<{
     sessionId: string;
     top: number;
@@ -100,6 +101,24 @@ export function LeftSidebar({
     ? sessions.find((session) => session.id === actionMenu.sessionId) || null
     : null;
 
+  useEffect(() => {
+    if (tab !== "sessions") {
+      return;
+    }
+
+    const listElement = sessionListRef.current;
+    if (!listElement) {
+      return;
+    }
+
+    const activeElement = listElement.querySelector(".session-item.active") as HTMLElement | null;
+    if (!activeElement) {
+      return;
+    }
+
+    activeElement.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [tab, activeSessionId, sessions.length]);
+
   return (
     <aside className="left-sidebar">
       <div className="side-tabs">
@@ -126,7 +145,7 @@ export function LeftSidebar({
               <div className="side-panel-head">
                 <strong>Session 列表</strong>
               </div>
-              <div className="session-list">
+              <div ref={sessionListRef} className="session-list">
                 {sessions.length === 0 ? <p className="muted">暂无 Session</p> : null}
                 {sessions.map((session) => (
                   <div key={session.id} className={`session-item ${activeSessionId === session.id ? "active" : ""}`}>
@@ -135,9 +154,9 @@ export function LeftSidebar({
                         type="button"
                         className="session-main"
                         onClick={() => onSelectSession(session.id)}
-                        title={`${session.runtimeProfile || "default"} / ${session.model || "default"}`}
+                        title={session.title || session.model || "新会话"}
                       >
-                        <strong className="session-model">{session.model || "default"}</strong>
+                        <strong className="session-model">{session.title || session.model || "新会话"}</strong>
                       </button>
                       <button
                         type="button"

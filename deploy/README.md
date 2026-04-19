@@ -18,12 +18,18 @@ docker compose up -d --build
 
 在 `.env` 里通过单个配置项统一 Agent 对话根路径和文件树根路径：
 
-- `WORKSPACE_PATH=/host-workspace/Multi-Copilot`
+- `WORKSPACE_PATH=../workspace`
 
 该值会同时用于：
 
-- App 的 `DEFAULT_WORKSPACE_PATH`
-- Codex 运行时容器的 `working_dir`
+- App 与 Codex 容器的同一挂载目录 `/workspace`
+- App 的 `DEFAULT_WORKSPACE_PATH=/workspace`
+- Codex 运行时容器的 `working_dir=/workspace`
+
+说明：
+
+- App 运行代码已打包进镜像内目录 `/opt/copilot-console`。
+- `/workspace` 仅作为会话工作区挂载点，可保持为空的干净目录，不再要求包含 `package.json`。
 
 ## 模型来源
 

@@ -171,6 +171,51 @@ export function createApiRouter(
     }
   });
 
+  router.post("/runtime-login", async (req, res, next) => {
+    try {
+      const runtime = typeof req.body?.runtime === "string" ? (req.body.runtime as RuntimeName) : undefined;
+      const profile = typeof req.body?.profile === "string" ? req.body.profile.trim() : "";
+      const rootPath = resolve(defaultWorkspacePath);
+      const inputWorkspacePath =
+        typeof req.body?.workspacePath === "string" ? req.body.workspacePath.trim() : "";
+      const workspacePath = inputWorkspacePath
+        ? (inputWorkspacePath.startsWith("/")
+          ? resolve(inputWorkspacePath)
+          : resolve(rootPath, inputWorkspacePath))
+        : rootPath;
+
+      if (!isPathInside(rootPath, workspacePath)) {
+        res.status(400).json({ error: "Requested workspacePath is outside the workspace root" });
+        return;
+      }
+
+      const resolvedRuntime = sessions.getDefaultRuntime(runtime);
+      const requestTag = `runtime-login:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+      console.info(
+        `[${requestTag}] start runtime=${resolvedRuntime} profile=${profile || "default"} workspacePath=${workspacePath}`,
+      );
+
+      const result = await sessions.ensureRuntimeProfileLogin(runtime, profile || undefined, workspacePath);
+      if (result.authenticated) {
+        console.info(`[${requestTag}] success outputLines=${result.output.length}`);
+      } else {
+        const tail = result.output.slice(-3).join(" | ");
+        console.warn(
+          `[${requestTag}] failed outputLines=${result.output.length}${tail ? ` tail=${tail}` : ""}`,
+        );
+      }
+      res.json({
+        runtime: resolvedRuntime,
+        profile: profile || null,
+        authenticated: result.authenticated,
+        output: result.output,
+      });
+    } catch (error) {
+      console.error("[runtime-login] unexpected error", error);
+      next(error);
+    }
+  });
+
   router.get("/sessions/current", (_req, res) => {
     const snapshot = sessions.getCurrentSession();
     if (!snapshot) {
@@ -219,6 +264,21 @@ export function createApiRouter(
       }
       await sessions.sendMessage(req.params.sessionId, parsed.data.content);
       res.json({ accepted: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/sessions/:sessionId/title", async (req, res, next) => {
+    try {
+      const content = typeof req.body?.content === "string" ? req.body.content.trim() : "";
+      if (!content) {
+        res.status(400).json({ error: "content is required" });
+        return;
+      }
+
+      const session = await sessions.generateSessionTitle(req.params.sessionId, content);
+      res.json({ session });
     } catch (error) {
       next(error);
     }

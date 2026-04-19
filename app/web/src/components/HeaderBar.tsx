@@ -48,7 +48,7 @@ export function HeaderBar({
           >
             {uniqueProfiles.map((profile) => (
               <option key={profile} value={profile}>
-                {profile}
+                {profile === "openai-login" ? "OpenAI" : profile}
               </option>
             ))}
           </select>

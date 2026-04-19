@@ -32,24 +32,21 @@ export function Composer({ disabled, isRunning, onSend, onStop }: ComposerProps)
 
   return (
     <form className="composer" onSubmit={handleSubmit}>
-      <textarea
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void submitCurrent();
-          }
-        }}
-        placeholder="输入任务，例如：请分析 auth 模块，并修复登录逻辑，再运行相关测试"
-        rows={3}
-        disabled={disabled || submitting}
-      />
-      <div className="composer-actions">
-        <button type="button" className="ghost-button" onClick={() => setValue("")} disabled={disabled || submitting}>
-          清空输入
-        </button>
-        <div className="composer-send-group">
+      <div className="composer-input-row">
+        <textarea
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void submitCurrent();
+            }
+          }}
+          placeholder="输入任务，例如：请分析 auth 模块，并修复登录逻辑，再运行相关测试"
+          rows={3}
+          disabled={disabled || submitting}
+        />
+        <div className="composer-actions">
           <button
             type="button"
             className={`danger-button ${isRunning ? "active" : ""}`}

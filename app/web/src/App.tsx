@@ -32,7 +32,7 @@ export function App() {
     createOptions,
     modelOptions,
     setCreateOptions,
-    createSession,
+    startNewSessionDraft,
     sendMessage,
     stopSession,
     runtimeInfo,
@@ -179,7 +179,7 @@ export function App() {
           modelOptions={modelOptions}
           runtimeInfo={runtimeInfo}
           onCreateOptionsChange={setCreateOptions}
-          onNewSession={createSession}
+          onNewSession={startNewSessionDraft}
         />
 
         <main className={`layout-shell ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>

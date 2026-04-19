@@ -29,6 +29,13 @@ export interface RuntimeModelsResponse {
   models: string[];
 }
 
+export interface RuntimeLoginResponse {
+  runtime: RuntimeName;
+  profile: string | null;
+  authenticated: boolean;
+  output: string[];
+}
+
 export interface SessionListResponse {
   sessions: SessionSummary[];
 }
@@ -78,7 +85,7 @@ export interface ConsoleTabSnapshot {
 export type ConsoleTabEvent =
   | { type: "snapshot"; snapshot: ConsoleTabSnapshot }
   | { type: "entry"; entry: ConsoleTabEntry }
-  | { type: "status"; status: ConsoleTabStatus; updatedAt: string; message?: string };
+  | { type: "status"; status: ConsoleTabStatus; updatedAt: string; message?: string; cwd?: string };
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -131,6 +138,13 @@ export const apiClient = {
       method: "POST",
     }).then((response) => readJson<{ accepted: boolean }>(response));
   },
+  generateSessionTitle(sessionId: string, content: string): Promise<{ session: SessionSummary }> {
+    return fetch(`/api/sessions/${sessionId}/title`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    }).then((response) => readJson<{ session: SessionSummary }>(response));
+  },
   listRuntimeModels(runtime: RuntimeName, profile?: string): Promise<RuntimeModelsResponse> {
     const query = new URLSearchParams({ runtime });
     if (profile) {
@@ -139,6 +153,17 @@ export const apiClient = {
     return fetch(`/api/runtime-models?${query.toString()}`).then((response) =>
       readJson<RuntimeModelsResponse>(response),
     );
+  },
+  requestRuntimeLogin(
+    runtime: RuntimeName,
+    profile: string,
+    workspacePath?: string,
+  ): Promise<RuntimeLoginResponse> {
+    return fetch("/api/runtime-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runtime, profile, workspacePath }),
+    }).then((response) => readJson<RuntimeLoginResponse>(response));
   },
   workspaceTree(path?: string, depth = 2): Promise<WorkspaceTreeResponse> {
     const query = new URLSearchParams();

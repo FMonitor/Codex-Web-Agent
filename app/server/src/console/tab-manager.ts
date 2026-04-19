@@ -24,7 +24,7 @@ export interface ConsoleTabSnapshot {
 export type ConsoleTabEvent =
   | { type: "snapshot"; snapshot: ConsoleTabSnapshot }
   | { type: "entry"; entry: ConsoleTabEntry }
-  | { type: "status"; status: ConsoleTabStatus; updatedAt: string; message?: string };
+  | { type: "status"; status: ConsoleTabStatus; updatedAt: string; message?: string; cwd?: string };
 
 interface ConsoleTabState {
   id: string;
@@ -84,7 +84,10 @@ export class ConsoleTabManager {
       throw new Error("Console tab is already running a command");
     }
 
-    const child = spawn(DEFAULT_SHELL, ["-lc", normalized], {
+    const cwdMarker = `__COPILOT_CONSOLE_CWD__${nanoid(10)}__`;
+    const wrappedCommand = `${normalized}\nprintf '%s%s\\n' '${cwdMarker}' "$PWD"`;
+
+    const child = spawn(DEFAULT_SHELL, ["-lc", wrappedCommand], {
       cwd: state.cwd,
       env: process.env,
       stdio: "pipe",
@@ -104,9 +107,13 @@ export class ConsoleTabManager {
       state.stdoutBuffer = lines.pop() || "";
       for (const line of lines) {
         const text = dedupeLine(line);
-        if (text) {
-          this.pushEntry(state, "stdout", text);
+        if (!text) {
+          continue;
         }
+        if (this.consumeCwdMarker(state, text, cwdMarker)) {
+          continue;
+        }
+        this.pushEntry(state, "stdout", text);
       }
     });
 
@@ -125,13 +132,13 @@ export class ConsoleTabManager {
     child.on("error", (error) => {
       this.pushEntry(state, "system", `Failed to execute command: ${error.message}`);
       state.process = null;
-      this.flushRemainingBuffers(state);
+      this.flushRemainingBuffers(state, cwdMarker);
       this.setStatus(state, "idle");
     });
 
     child.on("exit", (code, signal) => {
       state.process = null;
-      this.flushRemainingBuffers(state);
+      this.flushRemainingBuffers(state, cwdMarker);
       this.pushEntry(
         state,
         "system",
@@ -221,13 +228,35 @@ export class ConsoleTabManager {
       status,
       updatedAt: state.updatedAt,
       message,
+      cwd: state.cwd,
     });
   }
 
-  private flushRemainingBuffers(state: ConsoleTabState): void {
+  private consumeCwdMarker(state: ConsoleTabState, line: string, marker: string): boolean {
+    if (!line.startsWith(marker)) {
+      return false;
+    }
+
+    const reportedCwd = line.slice(marker.length).trim();
+    if (reportedCwd && reportedCwd !== state.cwd) {
+      state.cwd = reportedCwd;
+      state.updatedAt = nowIso();
+      this.publish(state, {
+        type: "status",
+        status: state.status,
+        updatedAt: state.updatedAt,
+        cwd: state.cwd,
+      });
+    }
+    return true;
+  }
+
+  private flushRemainingBuffers(state: ConsoleTabState, cwdMarker?: string): void {
     const stdoutRemain = dedupeLine(state.stdoutBuffer);
     if (stdoutRemain) {
-      this.pushEntry(state, "stdout", stdoutRemain);
+      if (!cwdMarker || !this.consumeCwdMarker(state, stdoutRemain, cwdMarker)) {
+        this.pushEntry(state, "stdout", stdoutRemain);
+      }
     }
     const stderrRemain = dedupeLine(state.stderrBuffer);
     if (stderrRemain) {

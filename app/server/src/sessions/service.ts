@@ -1,7 +1,7 @@
-import type { ConsoleEvent, CreateSessionInput, RuntimeName, SessionSnapshot } from "@copilot-console/shared";
+import type { ConsoleEvent, CreateSessionInput, RuntimeName, SessionSnapshot, SessionSummary } from "@copilot-console/shared";
 import { EventBroker } from "../events/broker.js";
 import { applyEventToRecord } from "../events/reducer.js";
-import type { RuntimeAdapter } from "../runtime/runtime-adapter.js";
+import type { RuntimeAdapter, RuntimeLoginResult } from "../runtime/runtime-adapter.js";
 import { RuntimeRegistry } from "../runtime/runtime-registry.js";
 import { SessionStore } from "./store.js";
 
@@ -56,6 +56,17 @@ export class SessionService {
     await this.getAdapterForSession(sessionId).sendMessage(sessionId, content);
   }
 
+  async generateSessionTitle(sessionId: string, content: string): Promise<SessionSummary> {
+    const adapter = this.getAdapterForSession(sessionId);
+    const generated = adapter.generateTitle
+      ? await adapter.generateTitle(sessionId, content)
+      : null;
+
+    const fallback = this.fallbackTitle(content);
+    const title = (generated || fallback || "新会话").trim();
+    return this.store.updateSessionTitle(sessionId, title);
+  }
+
   async stopSession(sessionId: string): Promise<void> {
     await this.getAdapterForSession(sessionId).stopSession(sessionId);
   }
@@ -101,6 +112,26 @@ export class SessionService {
       return adapter.listModels(profile);
     }
     return adapter.getRuntimeInfo().models || [];
+  }
+
+  async ensureRuntimeProfileLogin(
+    runtime: RuntimeName | undefined,
+    profile: string | undefined,
+    workspacePath: string,
+  ): Promise<RuntimeLoginResult> {
+    const adapter = this.runtimes.getAdapter(runtime);
+    if (!adapter.ensureProfileLogin) {
+      return { authenticated: true, output: [] };
+    }
+    return adapter.ensureProfileLogin(profile || "", workspacePath);
+  }
+
+  private fallbackTitle(content: string): string {
+    const normalized = content.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return "新会话";
+    }
+    return normalized.slice(0, 24);
   }
 
   private getAdapterForSession(sessionId: string): RuntimeAdapter {
