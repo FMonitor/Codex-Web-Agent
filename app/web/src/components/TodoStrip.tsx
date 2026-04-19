@@ -129,6 +129,19 @@ function buildCollapsedTodoText(todo: TodoView | null): string {
 }
 
 function parseTodoCounts(message: string): Array<{ status: string; count: number }> {
+  const completedRatio = message.match(/已完成\s*(\d+)\s*\/\s*(\d+)/);
+  if (completedRatio) {
+    const completed = Number(completedRatio[1]);
+    const total = Number(completedRatio[2]);
+    if (Number.isFinite(completed) && Number.isFinite(total) && total >= 0) {
+      const pending = Math.max(0, total - completed);
+      return [
+        { status: "completed", count: completed },
+        { status: "pending", count: pending },
+      ].filter((item) => item.count > 0);
+    }
+  }
+
   const separatorIndex = message.search(/[:：]/);
   if (separatorIndex < 0) {
     return [];

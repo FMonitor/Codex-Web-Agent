@@ -492,6 +492,11 @@ export function createApiRouter(
       }
 
       const sourceStat = await lstat(source.absolutePath);
+      if (sourceStat.isDirectory() && isPathInside(source.absolutePath, target.absolutePath)) {
+        res.status(400).json({ error: "Cannot copy a directory into its own subdirectory" });
+        return;
+      }
+
       await mkdir(dirname(target.absolutePath), { recursive: true });
 
       try {

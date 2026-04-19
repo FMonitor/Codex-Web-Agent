@@ -46,8 +46,6 @@ class DocxEditor:
         :param level: The heading level (1-9).
         :return: The text of the heading.
         """
-        # Mapping level to docx heading styles (Heading 1, Heading 2, etc.)
-        style = f'Heading {level}'
         p = self.doc.add_heading(text, level=level)
         return text
 
@@ -73,8 +71,16 @@ class DocxEditor:
         :return: The full text content.
         """
         full_text = []
+        # Note: docx doesn't include table text in paragraphs by default
         for para in self.doc.paragraphs:
             full_text.append(para.text)
+        
+        # To include table text, we need to iterate through tables
+        for table in self.doc.tables:
+            for row in table.rows:
+                row_text = [cell.text for cell in row.cells]
+                full_text.append(" | ".join(row_text))
+                
         return "\n".join(full_text)
 
     def list_paragraphs(self) -> List[Dict[str, Any]]:

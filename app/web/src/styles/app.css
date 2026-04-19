@@ -444,6 +444,11 @@ pre {
   background: rgba(255, 107, 107, 0.15);
 }
 
+.menu-item-armed {
+  background: rgba(255, 107, 107, 0.24);
+  color: #ffd7d2;
+}
+
 .tree-list {
   list-style: none;
   padding-left: 0.8rem;

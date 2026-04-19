@@ -153,7 +153,7 @@ export class SessionService {
     const lines: string[] = [
       "你正在一个持续会话中执行任务。",
       this.buildLanguageGuidance(latestUserContent),
-      "当你创建或更新执行计划/Todo时，请额外给出一条简短进展说明：已完成什么、下一步做什么。",
+      "执行计划更新过程由系统事件自动展示。除非用户明确要求，不要额外输出“执行计划已创建/更新”这类过程提示。",
       "不要逐项罗列完整 Todo 列表或状态计数，除非用户明确要求。",
     ];
 

@@ -31,8 +31,11 @@ interface TreeNodeProps {
   onNodeDragStart: (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => void;
   onNodeDragEnd: () => void;
   onDirectoryDragOver: (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => void;
-  onDirectoryDragLeave: (node: WorkspaceTreeNode) => void;
+  onDirectoryDragLeave: (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => void;
   onDirectoryDrop: (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => void;
+  onDirectoryDetailsRef: (path: string, element: HTMLDetailsElement | null) => void;
+  directoryOpenMap: Record<string, boolean>;
+  onDirectoryToggle: (path: string, open: boolean) => void;
   draggingPath: string | null;
   dropTargetPath: string | null;
 }
@@ -49,22 +52,6 @@ function splitPath(path: string): string[] {
 function basenameFromPath(path: string): string {
   const parts = splitPath(path);
   return parts[parts.length - 1] || path;
-}
-
-function buildCopySuggestion(path: string): string {
-  const normalized = normalizeRelativePath(path);
-  if (normalized === ".") {
-    return "";
-  }
-
-  const parts = splitPath(normalized);
-  const name = parts.pop() || "item";
-  const extensionIndex = name.lastIndexOf(".");
-  const copiedName = extensionIndex > 0
-    ? `${name.slice(0, extensionIndex)}-copy${name.slice(extensionIndex)}`
-    : `${name}-copy`;
-  const parent = parts.join("/");
-  return parent ? `${parent}/${copiedName}` : copiedName;
 }
 
 function joinPath(parentPath: string, childName: string): string {
@@ -90,6 +77,21 @@ function canDropIntoTarget(sourcePath: string, targetDirPath: string): boolean {
   return !target.startsWith(`${source}/`);
 }
 
+function canPasteToDirectory(sourcePath: string, targetDirPath: string): boolean {
+  const source = normalizeRelativePath(sourcePath);
+  const target = normalizeRelativePath(targetDirPath);
+
+  if (source === ".") {
+    return false;
+  }
+
+  if (target === source) {
+    return false;
+  }
+
+  return !target.startsWith(`${source}/`);
+}
+
 function TreeNode({
   node,
   onSelectFile,
@@ -101,6 +103,9 @@ function TreeNode({
   onDirectoryDragOver,
   onDirectoryDragLeave,
   onDirectoryDrop,
+  onDirectoryDetailsRef,
+  directoryOpenMap,
+  onDirectoryToggle,
   draggingPath,
   dropTargetPath,
 }: TreeNodeProps) {
@@ -108,6 +113,7 @@ function TreeNode({
   const isDragSource = draggingPath === normalizedPath;
   const isDropTarget = dropTargetPath === normalizedPath;
   const isRoot = normalizedPath === ".";
+  const isOpen = directoryOpenMap[normalizedPath] ?? true;
 
   if (node.type === "file") {
     return (
@@ -137,10 +143,17 @@ function TreeNode({
       className={`tree-item tree-dir ${isDragSource ? "drag-source" : ""}`}
       title={node.path}
       onDragOver={(event) => onDirectoryDragOver(event, node)}
-      onDragLeave={() => onDirectoryDragLeave(node)}
+      onDragLeave={(event) => onDirectoryDragLeave(event, node)}
       onDrop={(event) => onDirectoryDrop(event, node)}
     >
-      <details open>
+      <details
+        ref={(element) => onDirectoryDetailsRef(normalizedPath, element)}
+        open={isOpen}
+        onToggle={(event) => {
+          const details = event.currentTarget as HTMLDetailsElement;
+          onDirectoryToggle(normalizedPath, details.open);
+        }}
+      >
         <summary
           className={`tree-dir-summary ${isDropTarget ? "drop-target" : ""}`}
           onContextMenu={(event) => onNodeContextMenu(event, node)}
@@ -167,6 +180,9 @@ function TreeNode({
                 onDirectoryDragOver={onDirectoryDragOver}
                 onDirectoryDragLeave={onDirectoryDragLeave}
                 onDirectoryDrop={onDirectoryDrop}
+                onDirectoryDetailsRef={onDirectoryDetailsRef}
+                directoryOpenMap={directoryOpenMap}
+                onDirectoryToggle={onDirectoryToggle}
                 draggingPath={draggingPath}
                 dropTargetPath={dropTargetPath}
               />
@@ -196,6 +212,10 @@ export function LeftSidebar({
   onDeleteEntry,
 }: LeftSidebarProps) {
   const sessionListRef = useRef<HTMLDivElement | null>(null);
+  const deleteConfirmTimerRef = useRef<number | null>(null);
+  const directoryDetailsRef = useRef<Record<string, HTMLDetailsElement | null>>({});
+  const hoverExpandTimerRef = useRef<number | null>(null);
+  const hoverExpandPathRef = useRef<string | null>(null);
   const dragPressStartedAtRef = useRef<Record<string, number>>({});
   const [actionMenu, setActionMenu] = useState<{
     sessionId: string;
@@ -211,6 +231,30 @@ export function LeftSidebar({
   const [fileActionBusy, setFileActionBusy] = useState(false);
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const [copiedEntry, setCopiedEntry] = useState<{
+    path: string;
+    type: "file" | "directory";
+    name: string;
+  } | null>(null);
+  const [deleteConfirmPath, setDeleteConfirmPath] = useState<string | null>(null);
+  const [directoryOpenMap, setDirectoryOpenMap] = useState<Record<string, boolean>>({
+    ".": true,
+  });
+
+  const clearDeleteConfirmTimer = () => {
+    if (deleteConfirmTimerRef.current) {
+      window.clearTimeout(deleteConfirmTimerRef.current);
+      deleteConfirmTimerRef.current = null;
+    }
+  };
+
+  const clearHoverExpandTimer = () => {
+    if (hoverExpandTimerRef.current) {
+      window.clearTimeout(hoverExpandTimerRef.current);
+      hoverExpandTimerRef.current = null;
+    }
+    hoverExpandPathRef.current = null;
+  };
 
   useEffect(() => {
     const close = () => setActionMenu(null);
@@ -230,11 +274,15 @@ export function LeftSidebar({
       }
       close();
       setFileMenu(null);
+      setDeleteConfirmPath(null);
+      clearDeleteConfirmTimer();
     };
 
     const onWindowUpdate = () => {
       close();
       setFileMenu(null);
+      setDeleteConfirmPath(null);
+      clearDeleteConfirmTimer();
     };
 
     document.addEventListener("mousedown", onDocumentClick);
@@ -248,13 +296,20 @@ export function LeftSidebar({
     };
   }, []);
 
+  useEffect(() => () => {
+    clearDeleteConfirmTimer();
+    clearHoverExpandTimer();
+  }, []);
+
   const handleNodeContextMenu = (event: ReactMouseEvent<HTMLElement>, node: WorkspaceTreeNode) => {
     event.preventDefault();
     const normalizedPath = normalizeRelativePath(node.path);
-    if (normalizedPath === ".") {
+    if (normalizedPath === "." && !copiedEntry) {
       return;
     }
     setActionMenu(null);
+    setDeleteConfirmPath(null);
+    clearDeleteConfirmTimer();
     setFileMenu({
       path: normalizedPath,
       type: node.type,
@@ -298,6 +353,7 @@ export function LeftSidebar({
   const handleNodeDragEnd = () => {
     setDraggingPath(null);
     setDropTargetPath(null);
+    clearHoverExpandTimer();
   };
 
   const handleDirectoryDragOver = (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => {
@@ -319,12 +375,31 @@ export function LeftSidebar({
     if (dropTargetPath !== targetPath) {
       setDropTargetPath(targetPath);
     }
+
+    if (hoverExpandPathRef.current !== targetPath) {
+      clearHoverExpandTimer();
+      hoverExpandPathRef.current = targetPath;
+      hoverExpandTimerRef.current = window.setTimeout(() => {
+        setDirectoryOpenMap((current) => ({
+          ...current,
+          [targetPath]: true,
+        }));
+      }, 500);
+    }
   };
 
-  const handleDirectoryDragLeave = (node: WorkspaceTreeNode) => {
+  const handleDirectoryDragLeave = (event: ReactDragEvent<HTMLElement>, node: WorkspaceTreeNode) => {
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+
     const targetPath = normalizeRelativePath(node.path);
     if (dropTargetPath === targetPath) {
       setDropTargetPath(null);
+    }
+    if (hoverExpandPathRef.current === targetPath) {
+      clearHoverExpandTimer();
     }
   };
 
@@ -337,6 +412,7 @@ export function LeftSidebar({
     const sourcePath = normalizeRelativePath(event.dataTransfer.getData("text/plain") || draggingPath || "");
     const targetDirPath = normalizeRelativePath(node.path);
     setDropTargetPath(null);
+    clearHoverExpandTimer();
 
     if (!sourcePath || !canDropIntoTarget(sourcePath, targetDirPath)) {
       setDraggingPath(null);
@@ -364,20 +440,47 @@ export function LeftSidebar({
     }
 
     const sourcePath = normalizeRelativePath(fileMenu.path);
-    const suggestion = buildCopySuggestion(sourcePath);
-    const targetInput = typeof window !== "undefined"
-      ? window.prompt("复制到（相对工作区路径）", suggestion)
-      : suggestion;
-    if (!targetInput || !targetInput.trim()) {
+    if (sourcePath === ".") {
       return;
     }
 
+    setCopiedEntry({
+      path: sourcePath,
+      type: fileMenu.type,
+      name: basenameFromPath(sourcePath),
+    });
+    setFileMenu(null);
+    setDeleteConfirmPath(null);
+    clearDeleteConfirmTimer();
+  };
+
+  const handlePasteEntry = async () => {
+    if (!fileMenu || fileActionBusy) {
+      return;
+    }
+
+    if (fileMenu.type !== "directory" || !copiedEntry) {
+      return;
+    }
+
+    const targetDirPath = normalizeRelativePath(fileMenu.path);
+    if (!canPasteToDirectory(copiedEntry.path, targetDirPath)) {
+      if (typeof window !== "undefined") {
+        window.alert("无法粘贴到该目录");
+      }
+      return;
+    }
+
+    const targetPath = joinPath(targetDirPath, copiedEntry.name);
+
     setFileActionBusy(true);
     try {
-      await onCopyEntry(sourcePath, targetInput.trim());
+      await onCopyEntry(copiedEntry.path, targetPath);
       setFileMenu(null);
+      setDeleteConfirmPath(null);
+      clearDeleteConfirmTimer();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "复制失败";
+      const message = error instanceof Error ? error.message : "粘贴失败";
       if (typeof window !== "undefined") {
         window.alert(message);
       }
@@ -392,11 +495,16 @@ export function LeftSidebar({
     }
 
     const path = normalizeRelativePath(fileMenu.path);
-    const confirmed =
-      typeof window === "undefined"
-        ? true
-        : window.confirm(`确认删除 ${fileMenu.type === "directory" ? "目录" : "文件"} ${path} ?`);
-    if (!confirmed) {
+    if (path === ".") {
+      return;
+    }
+
+    if (deleteConfirmPath !== path) {
+      setDeleteConfirmPath(path);
+      clearDeleteConfirmTimer();
+      deleteConfirmTimerRef.current = window.setTimeout(() => {
+        setDeleteConfirmPath(null);
+      }, 2600);
       return;
     }
 
@@ -404,6 +512,8 @@ export function LeftSidebar({
     try {
       await onDeleteEntry(path);
       setFileMenu(null);
+      setDeleteConfirmPath(null);
+      clearDeleteConfirmTimer();
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除失败";
       if (typeof window !== "undefined") {
@@ -412,6 +522,17 @@ export function LeftSidebar({
     } finally {
       setFileActionBusy(false);
     }
+  };
+
+  const registerDirectoryDetails = (path: string, element: HTMLDetailsElement | null) => {
+    directoryDetailsRef.current[path] = element;
+  };
+
+  const handleDirectoryToggle = (path: string, open: boolean) => {
+    setDirectoryOpenMap((current) => ({
+      ...current,
+      [path]: open,
+    }));
   };
 
   const activeMenuSession = actionMenu
@@ -521,6 +642,9 @@ export function LeftSidebar({
                     onDirectoryDragOver={handleDirectoryDragOver}
                     onDirectoryDragLeave={handleDirectoryDragLeave}
                     onDirectoryDrop={handleDirectoryDrop}
+                    onDirectoryDetailsRef={registerDirectoryDetails}
+                    directoryOpenMap={directoryOpenMap}
+                    onDirectoryToggle={handleDirectoryToggle}
                     draggingPath={draggingPath}
                     dropTargetPath={dropTargetPath}
                   />
@@ -587,22 +711,36 @@ export function LeftSidebar({
             left: `${fileMenu.left}px`,
           }}
         >
-          <button
-            type="button"
-            className="menu-item"
-            onClick={() => void handleCopyEntry()}
-            disabled={fileActionBusy}
-          >
-            复制
-          </button>
-          <button
-            type="button"
-            className="menu-item menu-item-danger"
-            onClick={() => void handleDeleteEntry()}
-            disabled={fileActionBusy}
-          >
-            删除
-          </button>
+          {fileMenu.path !== "." ? (
+            <button
+              type="button"
+              className="menu-item"
+              onClick={() => void handleCopyEntry()}
+              disabled={fileActionBusy}
+            >
+              复制
+            </button>
+          ) : null}
+          {fileMenu.type === "directory" && copiedEntry ? (
+            <button
+              type="button"
+              className="menu-item"
+              onClick={() => void handlePasteEntry()}
+              disabled={fileActionBusy || !canPasteToDirectory(copiedEntry.path, fileMenu.path)}
+            >
+              粘贴到此目录
+            </button>
+          ) : null}
+          {fileMenu.path !== "." ? (
+            <button
+              type="button"
+              className={`menu-item menu-item-danger ${deleteConfirmPath === fileMenu.path ? "menu-item-armed" : ""}`}
+              onClick={() => void handleDeleteEntry()}
+              disabled={fileActionBusy}
+            >
+              {deleteConfirmPath === fileMenu.path ? "确认删除" : "删除"}
+            </button>
+          ) : null}
         </div>
           ,
           document.body,

@@ -184,14 +184,16 @@ function normalizeTodoSteps(item: CodexItem): NormalizedTodoStep[] {
   return [];
 }
 
-function buildTodoProgressMessage(rawType: string, item: CodexItem): string | null {
+function buildTodoProgressMessage(rawType: string, steps: NormalizedTodoStep[]): string | null {
   if (rawType === "item.completed") {
     return null;
   }
 
   const action = rawType === "item.started" ? "执行计划已创建" : "执行计划已更新";
-  const steps = normalizeTodoSteps(item);
   if (steps.length === 0) {
+    if (rawType === "item.started") {
+      return `${action}。下一步：正在生成任务清单。`;
+    }
     return `${action}。下一步：继续执行计划。`;
   }
 
@@ -211,6 +213,7 @@ export class CodexEventMapper {
   private readonly messageTextByItemId = new Map<string, string>();
   private readonly threadEventsSeen = new Set<string>();
   private readonly syntheticItemIds = new Map<string, string>();
+  private readonly todoStepsByItemId = new Map<string, NormalizedTodoStep[]>();
   private turnSequence = 0;
 
   constructor(private readonly session: SessionSummary) {}
@@ -248,6 +251,7 @@ export class CodexEventMapper {
       this.turnSequence += 1;
       this.messageTextByItemId.clear();
       this.syntheticItemIds.clear();
+      this.todoStepsByItemId.clear();
       return [
         {
           ...base("session.started", "planning"),
@@ -360,12 +364,23 @@ export class CodexEventMapper {
     }
 
     if (item.type === "todo_list") {
-      const message = buildTodoProgressMessage(raw.type, item);
+      const incomingSteps = normalizeTodoSteps(item);
+      const cachedSteps = this.todoStepsByItemId.get(itemId) || [];
+      const effectiveSteps = incomingSteps.length > 0 ? incomingSteps : cachedSteps;
+      if (incomingSteps.length > 0) {
+        this.todoStepsByItemId.set(itemId, incomingSteps);
+      }
+
+      const message = buildTodoProgressMessage(raw.type, effectiveSteps);
       if (message) {
         events.push({
           ...base("assistant.intent", "planning"),
           message,
         });
+      }
+
+      if (raw.type === "item.completed") {
+        this.todoStepsByItemId.delete(itemId);
       }
 
       return events;
